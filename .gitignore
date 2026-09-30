@@ -221,3 +221,8 @@ __marimo__/
 config.prod-*.yaml
 config.stag*.yaml
 config.yaml
+
+data/
+logs/
+certs/
+ssh/
