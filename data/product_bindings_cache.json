@@ -1,0 +1,205 @@
+{
+  "aliyun:星闪": {
+    "updated_at": "2026-09-17T02:40:46+00:00",
+    "products": {}
+  },
+  "aliyun:科曼": {
+    "updated_at": "2026-08-25T09:32:51+00:00",
+    "products": {}
+  },
+  "aliyun:曼科": {
+    "updated_at": "2026-08-25T09:32:52+00:00",
+    "products": {}
+  },
+  "aliyun:光契": {
+    "updated_at": "2026-08-25T09:32:53+00:00",
+    "products": {}
+  },
+  "aliyun:赞响": {
+    "updated_at": "2026-08-25T09:32:54+00:00",
+    "products": {}
+  },
+  "aliyun:准游": {
+    "updated_at": "2026-08-25T09:32:55+00:00",
+    "products": {}
+  },
+  "aliyun:闪浪": {
+    "updated_at": "2026-08-25T09:32:56+00:00",
+    "products": {}
+  },
+  "aliyun:恒拓": {
+    "updated_at": "2026-08-25T09:32:57+00:00",
+    "products": {}
+  },
+  "aliyun:锐凡": {
+    "updated_at": "2026-08-25T09:32:59+00:00",
+    "products": {}
+  },
+  "aliyun:森月": {
+    "updated_at": "2026-08-25T09:33:00+00:00",
+    "products": {}
+  },
+  "aliyun:奇臻": {
+    "updated_at": "2026-08-25T09:33:00+00:00",
+    "products": {}
+  },
+  "aliyun:瑞浪": {
+    "updated_at": "2026-08-25T09:33:01+00:00",
+    "products": {}
+  },
+  "aliyun:奇裕": {
+    "updated_at": "2026-08-25T09:33:03+00:00",
+    "products": {
+      "cdn": {
+        "img.sqxs123.com": [
+          {
+            "domain": "img.sqxs123.com"
+          }
+        ],
+        "img.sqkm2023.com": [
+          {
+            "domain": "img.sqkm2023.com"
+          }
+        ]
+      },
+      "oss": {
+        "cn-shenzhen:zx-xchat--img:image.sqxs123.com": [
+          {
+            "domain": "image.sqxs123.com"
+          }
+        ],
+        "cn-shenzhen:zx-xchat--img:img.nczx2025.com": [
+          {
+            "domain": "img.nczx2025.com"
+          }
+        ],
+        "cn-shenzhen:zx-xchat--img:img.sqkm2023.com": [
+          {
+            "domain": "img.sqkm2023.com"
+          }
+        ],
+        "cn-shenzhen:zx-xchat--img:img.sqxs123.com": [
+          {
+            "domain": "img.sqxs123.com"
+          }
+        ]
+      }
+    }
+  },
+  "huawei:准游hw": {
+    "updated_at": "2026-08-25T09:33:05+00:00",
+    "products": {
+      "elb": {
+        "55263cba-5aa4-4775-b52e-e17aa9993e10": [
+          {
+            "domain": "miaolin520.com"
+          },
+          {
+            "domain": "nczx2025.com"
+          },
+          {
+            "domain": "gzzy9999.com"
+          },
+          {
+            "domain": "gzzy2026.com"
+          },
+          {
+            "domain": "gzzy2025.com"
+          },
+          {
+            "domain": "m.nczx2025.com"
+          },
+          {
+            "domain": "sqmk666.com"
+          }
+        ],
+        "7f451c59-d36c-4f92-9894-0030617b33ca": [
+          {
+            "domain": "sqkm2023.com"
+          },
+          {
+            "domain": "sqmk888.com"
+          },
+          {
+            "domain": "sqht789.com"
+          },
+          {
+            "domain": "sqkm168.com"
+          },
+          {
+            "domain": "sqkm666.com"
+          },
+          {
+            "domain": "sqxs123.com"
+          }
+        ]
+      }
+    }
+  },
+  "aliyun:汀悦": {
+    "updated_at": "2026-08-25T09:33:07+00:00",
+    "products": {}
+  },
+  "tencent:游逸思": {
+    "updated_at": "2026-09-10T03:07:45+00:00",
+    "products": {
+      "cdn": {
+        "cdn.test.gzyys26.com": [
+          {
+            "domain": "cdn.test.gzyys26.com"
+          }
+        ],
+        "static.gzyysi.com": [
+          {
+            "domain": "static.gzyysi.com"
+          }
+        ],
+        "html.gzyysi.com": [
+          {
+            "domain": "html.gzyysi.com"
+          }
+        ]
+      },
+      "live": {
+        "test.pull.gzyysi.com": [
+          {
+            "domain": "test.pull.gzyysi.com"
+          }
+        ],
+        "pull.gzyysi.com": [
+          {
+            "domain": "pull.gzyysi.com"
+          }
+        ]
+      },
+      "oss": {
+        "ap-guangzhou:xchat-dev-html-1411144539:htmldev.gzyysi.com": [
+          {
+            "domain": "htmldev.gzyysi.com"
+          }
+        ]
+      }
+    }
+  },
+  "huawei:游逸思hw": {
+    "updated_at": "2026-08-25T09:33:08+00:00",
+    "products": {
+      "elb": {
+        "f65d0fb1-b8d8-4f2f-a1a0-71f7fb7d1790": [
+          {
+            "domain": "api.gzyysi.com"
+          }
+        ],
+        "deafa8a5-3976-4153-a6b8-b458993d7c6f": [
+          {
+            "domain": "api.gzyysi.com"
+          }
+        ]
+      }
+    }
+  },
+  "cloudflare:星闪cf": {
+    "updated_at": "2026-09-17T02:40:46+00:00",
+    "products": {}
+  }
+}

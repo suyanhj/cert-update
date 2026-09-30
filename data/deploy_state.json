@@ -1,0 +1,86 @@
+{
+  "api.example.com|ali-1|cdn|p-1": {
+    "last_status": "success",
+    "last_success_at": "2026-09-30T06:08:11+00:00",
+    "last_fail_at": "2026-09-30T06:08:11+00:00",
+    "consecutive_failures": 0,
+    "total_failures": 77,
+    "last_message": "ok",
+    "provider": "ali-1",
+    "product_type": "cdn",
+    "product_id": "p-1",
+    "domain": "api.example.com"
+  },
+  "img.example.com|tencent-1|oss|ap-guangzhou:bucket-1:img.example.com": {
+    "last_status": "success",
+    "last_success_at": "2026-09-30T06:08:11+00:00",
+    "last_fail_at": "",
+    "consecutive_failures": 0,
+    "total_failures": 0,
+    "last_message": "ok",
+    "provider": "tencent-1",
+    "product_type": "oss",
+    "product_id": "ap-guangzhou:bucket-1:img.example.com",
+    "domain": "img.example.com"
+  },
+  "live.example.com|tencent-1|live|live.example.com": {
+    "last_status": "success",
+    "last_success_at": "2026-09-10T01:57:24+00:00",
+    "last_fail_at": "",
+    "consecutive_failures": 0,
+    "total_failures": 0,
+    "last_message": "ok",
+    "provider": "tencent-1",
+    "product_type": "live",
+    "product_id": "live.example.com",
+    "domain": "live.example.com"
+  },
+  "outside.test|tencent-1|live|live.example.com": {
+    "last_status": "success",
+    "last_success_at": "2026-09-30T06:08:11+00:00",
+    "last_fail_at": "",
+    "consecutive_failures": 0,
+    "total_failures": 0,
+    "last_message": "ok",
+    "provider": "tencent-1",
+    "product_type": "live",
+    "product_id": "live.example.com",
+    "domain": "outside.test"
+  },
+  "cached.example.com|tencent-1|cdn|cached.example.com": {
+    "last_status": "success",
+    "last_success_at": "2026-09-10T07:22:04+00:00",
+    "last_fail_at": "",
+    "consecutive_failures": 0,
+    "total_failures": 0,
+    "last_message": "ok",
+    "provider": "tencent-1",
+    "product_type": "cdn",
+    "product_id": "cached.example.com",
+    "domain": "cached.example.com"
+  },
+  "htmldev.gzyysi.com|tencent-1|oss|ap-guangzhou:html-bucket:htmldev.gzyysi.com": {
+    "last_status": "success",
+    "last_success_at": "2026-09-10T07:22:04+00:00",
+    "last_fail_at": "",
+    "consecutive_failures": 0,
+    "total_failures": 0,
+    "last_message": "ok",
+    "provider": "tencent-1",
+    "product_type": "oss",
+    "product_id": "ap-guangzhou:html-bucket:htmldev.gzyysi.com",
+    "domain": "htmldev.gzyysi.com"
+  },
+  "eo.example.com|tencent-1|teo|eo.example.com": {
+    "last_status": "success",
+    "last_success_at": "2026-09-30T06:08:11+00:00",
+    "last_fail_at": "",
+    "consecutive_failures": 0,
+    "total_failures": 0,
+    "last_message": "ok",
+    "provider": "tencent-1",
+    "product_type": "teo",
+    "product_id": "eo.example.com",
+    "domain": "eo.example.com"
+  }
+}

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 300" font-family="sans-serif" font-size="12">
+  <title>Providers 构建流程</title>
+  <rect width="440" height="300" fill="#fafafa" stroke="#ccc" rx="4"/>
+  <text x="220" y="22" text-anchor="middle" font-weight="bold">Providers 构建流程</text>
+  <g fill="#e3f2fd" stroke="#1976d2">
+    <rect x="120" y="38" width="200" height="24" rx="4"/>
+    <rect x="120" y="70" width="200" height="24" rx="4"/>
+    <rect x="120" y="102" width="200" height="24" rx="4"/>
+    <rect x="120" y="134" width="200" height="24" rx="4"/>
+  </g>
+  <text x="220" y="54" text-anchor="middle">从 config.providers 加载配置</text>
+  <text x="220" y="86" text-anchor="middle">normalize_provider_type(cfg.type)</text>
+  <text x="220" y="118" text-anchor="middle">enabled=false 或 type=custom 则跳过</text>
+  <text x="220" y="150" text-anchor="middle">build_provider(cfg, builder_map)</text>
+  <path d="M220 158 L220 176" stroke="#333" fill="none" stroke-width="1.5"/>
+  <text x="220" y="192" text-anchor="middle" font-weight="bold">Provider 接口</text>
+  <g fill="#fff3e0" stroke="#e65100">
+    <rect x="80" y="208" width="100" height="28" rx="4"/>
+    <rect x="200" y="208" width="100" height="28" rx="4"/>
+    <rect x="320" y="208" width="100" height="28" rx="4"/>
+  </g>
+  <text x="130" y="226" text-anchor="middle">get_domain_list</text>
+  <text x="250" y="226" text-anchor="middle">get_*_bindings</text>
+  <text x="370" y="226" text-anchor="middle">get_ecs_instances</text>
+  <text x="130" y="258" text-anchor="middle" font-size="10" fill="#666">Domains</text>
+  <text x="250" y="258" text-anchor="middle" font-size="10" fill="#666">DeployService</text>
+  <text x="370" y="258" text-anchor="middle" font-size="10" fill="#666">Ecs</text>
+</svg>

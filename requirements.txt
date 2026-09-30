@@ -1,0 +1,53 @@
+fastapi>=0.110
+jinja2>=3.1
+uvicorn[standard]>=0.22
+pydantic>=2.5
+pydantic-settings>=2.3
+httpx>=0.26
+apscheduler>=3.10
+PyYAML>=6.0
+cryptography>=41
+dnspython>=2.8,<3.0
+python-dotenv==1.2.1
+dingtalkchatbot>=1.5.7
+nicegui==3.9.0
+# Cloud platform SDKs
+# Tencent Cloud
+tencentcloud-sdk-python-dnspod>=3.0
+tencentcloud-sdk-python-domain>=3.0
+tencentcloud-sdk-python-cdn>=3.0
+tencentcloud-sdk-python-clb>=3.0
+tencentcloud-sdk-python-ssl>=3.0
+tencentcloud-sdk-python-live>=3.0
+cos-python-sdk-v5>=1.9
+# Aliyun Cloud (official recommended versions)
+alibabacloud_domain20180129==5.0.0
+alibabacloud-alidns20150109>=3.0
+alibabacloud-cdn20180510>=3.0
+alibabacloud_ecs20140526>=4.0.0
+alibabacloud_swas_open20200601>=3.0.0
+alibabacloud-slb20140515>=3.0
+alibabacloud-cas20200407>=2.0
+alibabacloud-alb20200616>=1.0.0
+alibabacloud-tea-openapi>=0.3
+# Huawei Cloud
+huaweicloudsdkdns>=3.1.0
+huaweicloudsdkcdn>=3.1.0
+huaweicloudsdkelb>=3.1.0
+huaweicloudsdkecs>=3.1.0
+huaweicloudsdkscm>=3.1.0
+huaweicloudsdkcore>=3.1.0
+huaweicloudsdkbss>=3.1.0
+huaweicloudsdkwaf>=3.1.0
+# Volcengine (ByteDance)
+volcengine-python-sdk>=5.0.0
+# Qiniu Cloud
+qiniu>=7.12.0
+# Cloudflare DNS
+cloudflare>=5.6.0,<6.0.0
+alibabacloud-oss-v2>=1.0.0
+# SSH deployment
+paramiko>=3.0
+python-box==7.3.2
+python-dotenv==1.2.1
+pytest>=8.0

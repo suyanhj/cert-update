@@ -1,0 +1,11 @@
+{
+  "vpn.gw6re98mzl.sqxs123.com": {
+    "last_status": "success",
+    "last_success_at": "2026-09-30T06:08:11+00:00",
+    "last_fail_at": "",
+    "consecutive_failures": 0,
+    "total_failures": 0,
+    "last_message": "manual deploy success",
+    "last_provider": ""
+  }
+}

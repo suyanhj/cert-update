@@ -1,0 +1,261 @@
+acme:
+  # 证书存储目录，默认相对项目根目录
+  cert_storage_path: ./certs
+  # acme.sh 可执行文件路径（生产环境使用）
+  acme_sh_path: ~/.acme.sh/acme.sh
+  # 证书路径模式：auto=自定义/记录/default 依次识别，default=acme.sh 默认目录，custom=Le_Real* 部署路径
+  certificate_path_mode: auto
+  # 单次 acme.sh 命令最长执行时间，超时会终止进程并告警
+  command_timeout_seconds: 900
+  # 续签 --renew 时等待 DNS TXT 记录传播（秒），对应 acme.sh --dnssleep；0 表示不传
+  dns_sleep_seconds: 60
+
+# 三种通知通道可任选或同时启用，分别通过各自的 enabled 独立控制。
+# 钉钉通知配置（必须在子配置或本地 config.yaml 中填入 webhook，否则继承时校验失败）
+# dingding:
+#   webhook: https://oapi.dingtalk.com/robot/send?access_token=replace-me
+#   secret: SEC_replace_me
+#   enabled: true
+# Rocket.Chat Incoming Webhook
+# rocketchat:
+#   enabled: false
+#   webhook: https://chat.example.com/hooks/replace_me/replace_me
+#   channel: ["#test", "@root"]
+#   username: "监控系统"
+#   icon_emoji: ":warning:"
+#   title: "证书监控"
+# SMTP 邮件通知；推荐通过环境变量提供密码，例如先设置 CRT_SMTP_PASSWORD。
+# email:
+#   enabled: false
+#   host: smtp.example.com
+#   port: 587
+#   security: starttls        # starttls / ssl / none，默认 starttls
+#   username: monitor@example.com  # 留空表示 SMTP 不认证
+#   password_env: CRT_SMTP_PASSWORD # 优先于 password
+#   # password: replace-me          # 不推荐在 YAML 中保存明文密码
+#   from_address: "CRT 监控 <monitor@example.com>"
+#   to: ["ops@example.com"]
+#   cc: ["owner@example.com"]
+#   subject_prefix: "[CRT] "
+#   timeout_seconds: 10
+
+providers: []
+# 云账号配置示例（在本地 config.yaml 中按需添加）：
+#  - name: aliyun-demo           # 账号名称，用于标识和展示
+#    type: aliyun                # aliyun / huawei / tencent / qiniu / cloudflare / volcengine / custom
+#    enabled: true               # 是否启用该账号
+#    credentials:                # 各云平台的 AK/SK 等凭证
+#      access_key_id: replace-me
+#      access_key_secret: replace-me
+#      region: ap-guangzhou
+#    check_extensions: false     # 是否检查证书的泛域名扩展
+#    sub_extensions: []          # 额外的子域扩展规则，见实际 config.yaml 示例
+#  - name: huawei-demo
+#    type: huawei
+#    enabled: true
+#    credentials:
+#      access_key_id: replace-me
+#      access_key_secret: replace-me
+#      project_id: replace-me
+#      region: cn-south-1
+#      enterprise_project_id: "0"  # 可选；WAF 企业项目 ID，默认 0，可用 all_granted_eps 扫描已授权企业项目
+#    check_extensions: false
+#    sub_extensions: []
+#  - name: tencent-demo
+#    type: tencent
+#    enabled: true
+#    credentials:
+#      secret_id: replace-me
+#      secret_key: replace-me
+#      region: ap-guangzhou
+#      clb_regions: ap-guangzhou,ap-shanghai   # 可选，限定 CLB 扫描地域（默认扫描全部 ap-* 亚太地域）
+#      cos_regions: ap-guangzhou,ap-hongkong   # 可选，限定 COS SSL 部署扫描地域（默认同 CLB，未配时回落 lb_regions/regions）
+#    check_extensions: false
+#    sub_extensions: []
+#  - name: cloudflare-demo
+#    type: cloudflare
+#    enabled: true
+#    credentials:
+#      api_token: replace-me     # 至少授予目标 Zone 的 Zone Read + DNS Edit
+#      account_id: replace-me    # 可选；账号有多个 Account 时建议填写
+#    check_extensions: false
+#    sub_extensions: []
+#  - name: qiniu-demo
+#    type: qiniu
+#    enabled: true
+#    credentials:
+#      access_key_id: replace-me
+#      access_key_secret: replace-me
+#    check_extensions: false
+#    sub_extensions: []
+#  - name: custom-demo           # 静态域名示例（无 SDK 的场景）
+#    type: custom
+#    enabled: true
+#    static_domains:
+#      - domain: example.com
+#        sub_domains:            # 子域名列表，@ 表示根域
+#          - '@'
+#          - www
+#        expires_at: '2026-12-31 23:59:59'
+#        registrant_org: Example Inc.
+
+# 全局 SSH Profile 示例，可在多个主机复用：
+# ssh_profiles:
+#  - name: ops-key
+#    username: root
+#    auth:
+#      type: key                 # key / password
+#      key_path: ~/.ssh/id_ed25519
+#      passphrase_env: SSH_KEY_PASSPHRASE
+#    connect_timeout_seconds: 10
+
+# Nginx 静态部署示例：
+# nginx:
+#   nginx_hosts:
+#    - name: web-01
+#      host: 10.0.1.11
+#      port: 22
+#      ssh_profile: ops-key
+#      sudo: true
+#      base_dir: /etc/nginx/ssl
+#      test_command: nginx -t
+#      reload_command: systemctl reload nginx           # 可在此写入自定义脚本
+#      reload_use_placeholders: false                   # 为 true 时，支持在 reload_command 中使用 {domain} 占位符
+#      backup_dir: /var/backups/certs
+#      timeout_seconds: 20
+#   nginx_target_groups:
+#    - name: prod-api
+#      hosts:
+#        - web-01
+#      cert_layout:
+#        # 可用名称：resolved_cert_name=下方模板渲染结果，main_domain=证书主域名，cert_name=规则命中域名
+#        cert_file: '{base_dir}/{resolved_cert_name}.pem'
+#        key_file: '{base_dir}/{resolved_cert_name}.key'
+#        owner: root
+#        group: root
+#        mode: '644'
+#    # cert_name_template 占位符说明：
+#    #   {main_domain} - 证书主域名（acme 签发主体），如 sqkm2023.com，与本地证书文件名一致
+#    #   {cert_name}   - 规则中实际命中的域名（去掉 *. 前缀），如 api-dev.sqkm2023.com
+#    # cert_name_template 的渲染结果会作为 cert_layout 中的 {resolved_cert_name}
+#    # 本地证书以主域名存储时（sqkm2023.com.pem），cert_name_template 应使用 {main_domain}
+#   nginx_deploy_rules:
+#    - cert_domains:
+#        - api.example.com
+#        - '*.example.com'
+#      target_group: prod-api
+#      cert_name_template: '{main_domain}'
+
+deploy:
+  # 部署模式：dry-run 只输出计划，apply 会实际调用云 API / SSH 部署
+  mode: dry-run
+  # 证书续签冷却时间（单位：天）；成功续签后，在该时间窗口内再次触发会被跳过（force=true 时忽略）
+  renew_cooldown_days: 7
+  # 单次续签触发内最大重试次数（包含首次尝试）；失败会在该次数内重试
+  max_renew_retries: 5
+  # 续签失败时两次重试之间的等待时间（秒，<=0 表示不等待；线上建议设置为较大的值避免频繁打爆 API）
+  renew_retry_interval_seconds: 10
+  binding_cache:
+    # 是否启用云产品绑定缓存（本地缓存 CDN/OSS/LB 与域名的关系）
+    # 三态行为矩阵：
+    #   enabled=true  + verify_before_apply=true ：匹配读缓存；apply 前实时拉 binding 做存在性校验，
+    #                                              缺失 skip+钉钉 WARNING；存在则用实时字段填充后部署。
+    #                                              verify 拉到的实时数据仅用于本次部署，不回写缓存
+    #                                              （缓存仅由 product_scan 刷新）
+    #   enabled=true  + verify_before_apply=false：完全以缓存为准，apply 前不做实时校验
+    #   enabled=false + (verify_before_apply 任意值)：直接实时扫描匹配，跳过 verify 阶段
+    enabled: true
+    # 缓存有效期（秒），必须为正数
+    ttl_seconds: 3600
+    # apply 前是否做一次实时存在性校验（仅在 enabled=true 时生效）
+    verify_before_apply: true
+
+alert:
+  # 证书到期告警阈值
+  cert:
+    enabled: true
+    cert_warn_days: 15
+    cert_expiry_days: 28
+  # 域名到期告警阈值
+  domain:
+    enabled: true
+    domain_warn_days: 15
+    domain_expiry_days: 28
+  # ECS 到期/续费告警阈值
+  ecs:
+    enabled: true
+    ecs_warn_days: 15
+    ecs_expiry_days: 28
+
+# 告警白名单：在此列表中的域名不会触发证书/域名到期告警
+whitelist: []
+
+# DNS 多平台同时残留同名 Zone 时，可按根域名指定实际托管账号；一般无需配置，系统优先查询公网权威 NS。
+domain_dns_overrides: {}
+# domain_dns_overrides:
+#   example.com: cloudflare-demo
+
+staging:
+  # 是否启用 staging 模式（仅用于测试，不要在生产开启）
+  enabled: false
+  # staging 下是否用本地自签证书模拟续签（true=local self-signed，false=仍调用 acme.sh）
+  use_self_signed: true
+
+product_scan:
+  # 各云厂商产品扫描开关，用于控制是否扫描 CDN/OSS/LB/WAF/ECS/域名
+  aliyun:
+    cdn_scan: true
+    oss_scan: true
+    lb_scan: false
+    ecs_scan: true        # 是否采集 ECS 实例
+    domain_scan: true     # 是否采集云上域名
+  huawei:
+    cdn_scan: true
+    oss_scan: false
+    lb_scan: true
+    waf_scan: true       # 扫描并部署云模式 WAF HTTPS 防护域名证书
+    ecs_scan: false
+    domain_scan: false
+  tencent:
+    # 腾讯云 apply 部署走上传证书后的 SSL Host 扫描，以下开关仅控制 SSL 部署扫描范围（非本地绑定缓存）。
+    cdn_scan: true
+    live_scan: true
+    eo_scan: true          # 扫描并通过腾讯云 SSL 部署 EdgeOne 域名证书
+    oss_scan: true
+    lb_scan: false
+    ecs_scan: false
+    domain_scan: true
+  volcengine:
+    cdn_scan: false
+    oss_scan: false
+    lb_scan: false
+  qiniu:
+    # 七牛云接入 CDN 与 Kodo 对象存储加速域名。
+    cdn_scan: true
+    live_scan: false
+    eo_scan: false
+    oss_scan: true
+    lb_scan: false
+    ecs_scan: false
+    domain_scan: false
+  cloudflare:
+    # Cloudflare 当前只读取 Zone/DNS；TXT 写入由后续签发流程中的 acme.sh dns_cf 完成。
+    cdn_scan: false
+    live_scan: false
+    eo_scan: false
+    oss_scan: false
+    lb_scan: false
+    ecs_scan: false
+    domain_scan: true
+
+# 采集调度与自动续签
+check_interval_minutes: 30      # 定时采集的间隔（分钟）
+auto_renew_enabled: false       # 是否启用自动续签编排（采集后按阈值触发续签，并按 deploy.mode 执行）
+auto_renew_days: 20             # 证书剩余多少天以内会自动尝试续签
+
+# 探测参数
+tls_scan_parallel: 10           # TLS 探测并发数
+http_scan_parallel: 10          # HTTP / DNS 子域探测并发数
+tls_timeout_seconds: 5          # TLS 探测超时时间（秒）
+http_timeout_seconds: 2         # HTTP 探测超时时间（秒）
+log_level: info                 # 全局日志级别：debug / info / warning / error

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 280" font-family="sans-serif" font-size="12">
+  <title>Deployers 执行流程</title>
+  <rect width="420" height="280" fill="#fafafa" stroke="#ccc" rx="4"/>
+  <text x="210" y="22" text-anchor="middle" font-weight="bold">Deployers 执行流程</text>
+  <g fill="#e8f5e9" stroke="#388e3c">
+    <rect x="140" y="40" width="140" height="26" rx="4"/>
+    <rect x="140" y="74" width="140" height="26" rx="4"/>
+  </g>
+  <text x="210" y="58" text-anchor="middle">build_cloud_deployer(provider_type, name, creds)</text>
+  <text x="210" y="92" text-anchor="middle">type -> Aliyun/Tencent/Huawei/Volcengine/QiniuDeployer</text>
+  <path d="M210 100 L210 118" stroke="#333" fill="none" stroke-width="1.5"/>
+  <text x="210" y="132" text-anchor="middle">CertificateDeployer.deploy(cert_pem, key_pem, target, cert_id)</text>
+  <path d="M210 140 L210 158" stroke="#333" fill="none" stroke-width="1.5"/>
+  <text x="210" y="172" text-anchor="middle" font-weight="bold">Deployer 执行</text>
+  <g fill="#fff3e0" stroke="#e65100">
+    <rect x="40" y="188" width="160" height="76" rx="4"/>
+    <rect x="220" y="188" width="160" height="76" rx="4"/>
+  </g>
+  <text x="120" y="208" text-anchor="middle" font-weight="bold">云厂商 Deployer</text>
+  <text x="120" y="228" text-anchor="middle">upload_certificate -> deploy(..., cert_id)</text>
+  <text x="120" y="248" text-anchor="middle">target: CDN/LB/OSS</text>
+  <text x="300" y="208" text-anchor="middle" font-weight="bold">Nginx Deployer</text>
+  <text x="300" y="228" text-anchor="middle">NginxDeployPlanner.plan_for_certificate</text>
+  <text x="300" y="248" text-anchor="middle">auth_map(ssh_profiles) -> NginxSSHDeployer</text>
+</svg>
