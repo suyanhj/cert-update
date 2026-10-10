@@ -1,7 +1,7 @@
 services:
   cert-monitor:
     container_name: cert-monitor
-    image: habor.testali.sqxs123.com/mid/cert-monitor
+    image: cert-monitor
     # build:
     #   context: .
     #   dockerfile: Dockerfile
