@@ -38,6 +38,7 @@
 - `providers[].static_domains[].sub_domains`：按文本去重（大小写不敏感）
 - `ssh_profiles`：按 `name`（大小写不敏感）
 - `whitelist`：按文本去重（大小写不敏感）
+- `blacklist`：按归一化后的完整域名去重（忽略大小写、首尾空格和末尾点），非法条目提前报错。
 - `nginx.nginx_hosts`：按 `name`（大小写不敏感）
 - `nginx.nginx_target_groups`：按 `name`（大小写不敏感）
 - `nginx.nginx_deploy_rules`：按 `(target_group.lower, cert_name_template, 排序后的 cert_domains.lower)` 生成规则键
@@ -66,7 +67,25 @@
 - 常见原因：当前生效子配置中存在无效 provider 凭证。
 - 排查方式：查看运行时配置视图，不要只看父级示例文件。
 
-## 8. 关联文档
+## 8. 证书操作黑名单
+
+顶层 `blacklist` 默认为空列表，可通过配置中心保存并热生效。例如：
+
+```yaml
+blacklist:
+  - example.com
+  - '*.example.com'
+```
+
+- 精确匹配，忽略大小写、首尾空格和末尾点，配置加载和保存时校验并去重；非法或空条目提前报错。
+- `example.com` 不自动拦截所有子域名；`*.example.com` 只匹配同名通配域名。
+- 首次签发检查全部提交域名，任意一个命中即跳过整次签发和部署。
+- 手动及自动续签、仅部署检查入口域名和解析后的实际证书主域名；强制续签也不绕过。
+- 命中时返回 `skipped`、`reason=blacklist`、`matched_domain` 与可读消息，页面及日志明确提示跳过。
+- 黑名单不改变证书采集、列表展示与过期告警；`whitelist` 仍只控制告警。
+- 续签入口不会额外读取真实证书 SAN；需要阻止整张证书时填写入口域名或实际主域名。
+
+## 9. 关联文档
 
 - 当前实现状态：`docs/README.md`
 - 流程总览：`docs/flow-runtime.md`

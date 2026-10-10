@@ -11,6 +11,7 @@ from box import Box
 from app.schemas.config import AppConfig
 from app.utils.logger import get_logger, set_global_log_level
 from app.utils.project_root import resolve_project_path
+from app.utils.domain_match import normalize_blacklist
 
 CONFIG_PATH = resolve_project_path("config.yaml")
 _CONFIG_CACHE: Box | None = None
@@ -183,6 +184,10 @@ def _dedupe_config_lists(data: dict[str, Any]) -> dict[str, Any]:
     if isinstance(whitelist, list):
         normalized["whitelist"] = _dedupe_scalar_list(whitelist)
 
+    blacklist = normalized.get("blacklist")
+    if isinstance(blacklist, list) and all(isinstance(item, str) for item in blacklist):
+        normalized["blacklist"] = normalize_blacklist(blacklist)
+
     nginx = normalized.get("nginx")
     if isinstance(nginx, dict):
         nginx_hosts = nginx.get("nginx_hosts")
@@ -259,9 +264,9 @@ def get_expanded_config_for_validation(raw: dict[str, Any]) -> dict[str, Any]:
     return _expand_config_for_validation(normalized, Path(CONFIG_PATH))
 
 
-def _validate_config(data: dict[str, Any]) -> None:
+def _validate_config(data: dict[str, Any]) -> dict[str, Any]:
     try:
-        validate_config_dict(data)
+        return AppConfig(**data).model_dump(mode="json")
     except Exception as exc:
         log.error("Config validation failed")
         raise ValueError(f"Config validation failed: {exc}") from exc
@@ -296,8 +301,8 @@ def get_config(force_reload: bool = False) -> Box:
         return _CONFIG_CACHE
 
     data = _read_raw_dict()
-    _validate_config(data)
-    conf = _to_box(data)
+    validated = _validate_config(data)
+    conf = _to_box(validated)
     _apply_log_level(conf)
     _CONFIG_CACHE = conf
     log.info("Config loaded from: %s", CONFIG_PATH)

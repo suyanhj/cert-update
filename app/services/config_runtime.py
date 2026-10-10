@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from app.config import (
     get_expanded_config_for_validation,
     reload_config,
+    get_config,
     update_config_atomic,
     validate_config_dict as _validate_config_dict,
 )
@@ -61,9 +62,16 @@ async def apply_config_dict(new_config: dict[str, Any]) -> None:
         # 继承场景下子配置不含 acme 等字段，需用「父 + 子」合并后的完整配置校验。
         expanded = get_expanded_config_for_validation(new_config)
         validate_config_dict(expanded)
-        update_config_atomic(new_config)
-        conf = reload_config()
+        previous_interval = int(get_config().check_interval_minutes)
+        log.info("配置切换等待当前自动任务结束")
         await stop_scheduler()
+        try:
+            update_config_atomic(new_config)
+            conf = reload_config()
+        except Exception:
+            log.exception("配置切换失败，恢复原调度间隔")
+            start_scheduler(previous_interval, run_immediately=False)
+            raise
         start_scheduler(int(conf.check_interval_minutes), run_immediately=False)
 
 

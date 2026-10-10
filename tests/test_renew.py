@@ -40,7 +40,7 @@ def test_renew_certificate_mock_returns_renewed_cert(monkeypatch: pytest.MonkeyP
     expected = _make_renewed_cert()
 
     class FakeRenewer:
-        def renew(self, domain, provider_name, force):
+        def renew(self, domain, provider_name, force, *, main_domain=None):
             return expected
 
     monkeypatch.setattr(renew_mod, "AcmeShRenewer", FakeRenewer)

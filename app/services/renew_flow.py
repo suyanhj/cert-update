@@ -7,15 +7,16 @@ import asyncio
 from app.config import load_raw_config
 from app.utils.logger import get_logger
 from app.utils.time import TimeUtil
+from app.utils.domain_match import find_blacklisted_domain
 from app.utils import notifier, store
-from app.services.deploy import DeployService
+from app.services.deploy import DeployService, DeploymentError
 
 from .renew import (
     issue_certificate,
     load_existing_certificate,
     prepare_issue_domains,
     renew_certificate,
-    _resolve_effective_renew_domain,
+    resolve_renew_domain,
 )
 
 
@@ -66,6 +67,11 @@ def format_deploy_notify_message(result: dict | None, display_domain: str) -> st
     """按 provider 维度拼接部署通知正文（域名 + 部署目标列表）。"""
     lines: list[str] = [f"域名: {display_domain}"]
     if not isinstance(result, dict):
+        return "\n".join(lines)
+
+    if result.get("mode") == "dry-run":
+        lines.append("部署预演完成，尚未部署")
+        lines.append(f"计划云目标: {len(result.get('planned_bind_actions') or [])}；Nginx 目标: {result.get('nginx_target_count', 0)}")
         return "\n".join(lines)
 
     bind_results = result.get("bind_results") or []
@@ -148,6 +154,23 @@ def format_deploy_notify_message(result: dict | None, display_domain: str) -> st
     return "\n".join(lines)
 
 
+def _blacklist_skip(config, domains: list[str], status_key: str) -> dict[str, Any] | None:
+    """在操作入口检查黑名单，命中时返回统一跳过结果。"""
+    matched = find_blacklisted_domain(domains, config.get("blacklist", []))
+    if matched is None:
+        return None
+    message = f"命中黑名单 {matched}，本次操作已跳过"
+    LOGGER.info("证书操作跳过: operation=%s domain=%s reason=blacklist", status_key, matched)
+    return {
+        "mode": config.deploy.mode.strip().lower(),
+        status_key: "skipped",
+        "reason": "blacklist",
+        "matched_domain": matched,
+        "message": message,
+        "retry_count": 0,
+    }
+
+
 async def issue_and_plan_deploy(
     domain: str,
     domains: list[str],
@@ -161,6 +184,10 @@ async def issue_and_plan_deploy(
     deploy_mode = config.deploy.mode.strip().lower()
     domain_key = str(domain).strip()
     issue_domains = prepare_issue_domains(domain_key, domains)
+    skipped = _blacklist_skip(config, issue_domains, "issue_status")
+    if skipped is not None:
+        skipped["domains"] = issue_domains
+        return skipped
     dd = notifier.DingDingNotifier()
 
     try:
@@ -213,7 +240,8 @@ async def issue_and_plan_deploy(
             )
     except Exception as exc:
         error = str(exc)
-        message = f"证书已签发，但部署失败: {error}"
+        action = "部署" if deploy_mode == "apply" else "部署预演"
+        message = f"证书已签发，但{action}失败: {error}"
         LOGGER.warning("%s domain=%s", message, domain_key)
         try:
             await dd.notify_issue_result(
@@ -225,15 +253,18 @@ async def issue_and_plan_deploy(
             )
         except Exception as notify_exc:
             LOGGER.warning("签发部署失败通知发送失败: domain=%s error=%s", domain_key, notify_exc)
-        return {
+        failure_result = dict(exc.result) if isinstance(exc, DeploymentError) else {"deploy_status": "failed"}
+        failure_result.update({
             "mode": deploy_mode,
             "issue_status": "deploy_failed",
             "domains": issue_domains,
             "error": error,
-        }
+        })
+        return failure_result
 
     payload = result if isinstance(result, dict) else {}
     payload.setdefault("mode", deploy_mode)
+    payload.setdefault("deploy_status", "success" if deploy_mode == "apply" else "planned")
     payload["issue_status"] = "success"
     payload["domains"] = issue_domains
     try:
@@ -253,26 +284,71 @@ async def renew_and_plan_deploy(
     domain: str,
     provider_name: Optional[str] = None,
     force: bool = False,
+    *,
+    automatic: bool = False,
+    processed_certificates: set[str] | None = None,
 ) -> dict[str, Any]:
-    """续签证书后按配置执行部署流程（dry-run 或 apply）。"""
+    """续签证书并部署；自动调用始终遵守冷却与部署失败保护。"""
     if not domain:
         raise ValueError("domain 不能为空")
 
     config = load_raw_config()
     deploy_mode = config.deploy.mode.strip().lower()
     domain_key = str(domain).strip()
-    effective_domain = _resolve_effective_renew_domain(domain_key)
-    state_key = effective_domain.lower()
+    skipped = _blacklist_skip(config, [domain_key], "renew_status")
+    if skipped is not None:
+        return skipped
+    try:
+        effective_domain = await resolve_renew_domain(domain_key)
+    except Exception as exc:
+        error = str(exc)
+        LOGGER.error("续签证书解析失败，停止当前目标: requested=%s error=%s", domain_key, error)
+        store.RenewStateStore().record_failure(
+            domain=domain_key.lower().rstrip("."),
+            provider=str(provider_name or ""),
+            message=error,
+        )
+        try:
+            await notifier.DingDingNotifier().notify_renew_result(
+                domain=domain_key,
+                success=False,
+                message=f"续签证书解析失败: {error}",
+                new_expires_at=None,
+            )
+        except Exception as notify_exc:
+            LOGGER.warning("续签解析失败通知发送失败: domain=%s error=%s", domain_key, notify_exc)
+        return {
+            "mode": deploy_mode,
+            "renew_status": "failed",
+            "retry_count": 0,
+            "error": error,
+        }
+    skipped = _blacklist_skip(config, [effective_domain], "renew_status")
+    if skipped is not None:
+        return skipped
+    state_key = effective_domain.lower().rstrip(".")
+    if processed_certificates is not None:
+        if state_key in processed_certificates:
+            message = f"本轮已处理证书 {effective_domain}，跳过重复域名"
+            LOGGER.info("%s: requested=%s", message, domain_key)
+            return {
+                "mode": deploy_mode, "renew_status": "skipped",
+                "reason": "duplicate_certificate", "message": message, "retry_count": 0,
+            }
+        processed_certificates.add(state_key)
+    LOGGER.info("续签证书已确定: requested=%s main_domain=%s", domain_key, effective_domain)
 
     renew_state = store.RenewStateStore()
     dd = notifier.DingDingNotifier()
     now_utc = TimeUtil.now_utc()
 
-    # 冷却窗口：成功续签后，在 deploy.renew_cooldown_days 内再次触发会被跳过（force=True 时忽略）。
+    # 自动流程仅强制执行续签命令；只有手工强制操作可以绕过状态保护。
+    respect_state = automatic or not force
+    # 冷却窗口：成功部署后，在 deploy.renew_cooldown_days 内跳过自动续签。
     cooldown_days = int(getattr(config.deploy, "renew_cooldown_days", 7) or 7)
     state = renew_state.get(state_key)
     if (
-        not force
+        respect_state
         and state
         and state.get("last_status") == "success"
         and state.get("last_success_at")
@@ -309,9 +385,9 @@ async def renew_and_plan_deploy(
     last_error: Optional[str] = None
     renewed_cert = None
 
-    # 如果上一次是“续签成功但部署失败”，则优先尝试直接加载已有证书，仅重新部署。
+    # 如果上一次是“续签成功但部署失败”，等待用户通过仅部署入口处理。
     if (
-        not force
+        respect_state
         and state
         and state.get("last_status") == "deploy_failed"
     ):
@@ -328,7 +404,7 @@ async def renew_and_plan_deploy(
             "error": state.get("last_message", "部署失败，等待人工处理"),
         }
 
-    # 若无法复用已有证书，则按原逻辑执行续签重试。
+    # 证书已确定，命令重试始终复用本轮主域名。
     if renewed_cert is None:
         # 续签重试：失败时在当前调用内最多尝试 max_retries 次。
         for idx in range(max_retries):
@@ -338,6 +414,7 @@ async def renew_and_plan_deploy(
                     domain=domain_key,
                     provider_name=provider_name,
                     force=force,
+                    main_domain=effective_domain,
                 )
                 LOGGER.info(
                     "证书续签成功: domain=%s provider=%s attempts=%s",
@@ -375,12 +452,15 @@ async def renew_and_plan_deploy(
 
     if renewed_cert is None:
         # 重试上限后仍失败，发送钉钉告警并返回失败结果，不进入部署流程。
-        await dd.notify_renew_result(
-            domain=effective_domain,
-            success=False,
-            message=f"证书续签失败，已重试 {attempts} 次: {last_error or '未知错误'}",
-            new_expires_at=None,
-        )
+        try:
+            await dd.notify_renew_result(
+                domain=effective_domain,
+                success=False,
+                message=f"证书续签失败，已重试 {attempts} 次: {last_error or '未知错误'}",
+                new_expires_at=None,
+            )
+        except Exception as notify_exc:
+            LOGGER.warning("续签失败通知发送失败: domain=%s error=%s", domain_key, notify_exc)
         return {
             "mode": deploy_mode,
             "renew_status": "failed",
@@ -402,34 +482,44 @@ async def renew_and_plan_deploy(
             )
     except Exception as exc:
         # 部署阶段失败：续签本身已成功，但整体流程失败。
-        error_msg = f"证书已续期成功，但部署失败: {exc}"
-        renew_state.record_deploy_failure(
-            domain=state_key,
-            provider=str(provider_name or ""),
-            message=error_msg,
-        )
-        # 发送一次汇总告警：说明续签 OK，但部署有错误；不进入冷却窗口。
-        await dd.notify_renew_result(
-            domain=effective_domain,
-            success=False,
-            message=error_msg,
-            new_expires_at=getattr(renewed_cert, "expires_at", None),
-        )
-        return {
+        action = "部署" if deploy_mode == "apply" else "部署预演"
+        error_msg = f"证书已续期成功，但{action}失败: {exc}"
+        if deploy_mode == "apply":
+            renew_state.record_deploy_failure(
+                domain=state_key,
+                provider=str(provider_name or ""),
+                message=error_msg,
+            )
+        # 通知失败不能覆盖部署失败结果；预演也不能修改待人工处理状态。
+        try:
+            await dd.notify_renew_result(
+                domain=effective_domain,
+                success=False,
+                message=error_msg,
+                new_expires_at=getattr(renewed_cert, "expires_at", None),
+            )
+        except Exception as notify_exc:
+            LOGGER.warning("部署失败通知发送失败: domain=%s error=%s", domain_key, notify_exc)
+        failure_result = dict(exc.result) if isinstance(exc, DeploymentError) else {"deploy_status": "failed"}
+        failure_result.update({
             "mode": deploy_mode,
             "renew_status": "deploy_failed",
             "retry_count": attempts,
             "error": str(exc),
-        }
+        })
+        return failure_result
 
-    # 续签 + 部署均成功后，才记录续签成功状态。
-    renew_state.record_success(
-        domain=state_key,
-        provider=str(provider_name or ""),
-        message="renew and deploy success",
-    )
+    # 只有真实部署全部成功才进入冷却；预演不覆盖待人工处理等既有状态。
+    if deploy_mode == "apply":
+        renew_state.record_success(
+            domain=state_key,
+            provider=str(provider_name or ""),
+            message="renew and deploy success",
+        )
 
-    # 续签 + 部署流程整体成功后发送一次成功通知。
+    result.setdefault("mode", deploy_mode)
+    result.setdefault("deploy_status", "success" if deploy_mode == "apply" else "planned")
+    # 续签完成通知：预演明确说明尚未部署。
     try:
         msg = format_deploy_notify_message(
             result if isinstance(result, dict) else None,
@@ -444,10 +534,8 @@ async def renew_and_plan_deploy(
     except Exception as exc:
         LOGGER.warning("续签结果通知发送失败: domain=%s error=%s", domain_key, exc)
 
-    if isinstance(result, dict):
-        result.setdefault("mode", deploy_mode)
-        result["renew_status"] = "success"
-        result["retry_count"] = attempts
+    result["renew_status"] = "success"
+    result["retry_count"] = attempts
     return result
 
 
@@ -462,13 +550,22 @@ async def deploy_existing_only(
     config = load_raw_config()
     deploy_mode = config.deploy.mode.strip().lower()
     domain_key = str(domain).strip()
-    effective_domain = _resolve_effective_renew_domain(domain_key)
-    dd = notifier.DingDingNotifier()
-
+    skipped = _blacklist_skip(config, [domain_key], "renew_status")
+    if skipped is not None:
+        return skipped
+    effective_domain = domain_key
+    dd = None
     try:
+        effective_domain = await resolve_renew_domain(domain_key)
+        skipped = _blacklist_skip(config, [effective_domain], "renew_status")
+        if skipped is not None:
+            return skipped
+        LOGGER.info("已有证书已确定: requested=%s main_domain=%s", domain_key, effective_domain)
+        dd = notifier.DingDingNotifier()
         renewed_cert = await load_existing_certificate(
             domain=domain_key,
             provider_name=provider_name,
+            main_domain=effective_domain,
         )
 
         deploy_service = DeployService()
@@ -486,11 +583,12 @@ async def deploy_existing_only(
         error_msg = f"证书部署失败: {exc}"
         LOGGER.error("仅部署失败: domain=%s error=%s", domain_key, exc)
         try:
-            await dd.notify_deploy_summary(
-                domain=effective_domain,
-                success=False,
-                message=error_msg,
-            )
+            if dd is None:
+                dd = notifier.DingDingNotifier()
+            notify_args = {"domain": effective_domain, "success": False, "message": error_msg}
+            if deploy_mode == "dry-run":
+                notify_args["dry_run"] = True
+            await dd.notify_deploy_summary(**notify_args)
         except Exception as notify_exc:
             LOGGER.warning(
                 "仅部署失败通知发送失败: domain=%s error=%s",
@@ -499,16 +597,17 @@ async def deploy_existing_only(
             )
         raise
 
+    result.setdefault("mode", deploy_mode)
+    result.setdefault("deploy_status", "success" if deploy_mode == "apply" else "planned")
     try:
         msg = format_deploy_notify_message(
             result if isinstance(result, dict) else None,
             effective_domain,
         )
-        await dd.notify_deploy_summary(
-            domain=effective_domain,
-            success=True,
-            message=msg,
-        )
+        notify_args = {"domain": effective_domain, "success": True, "message": msg}
+        if deploy_mode == "dry-run":
+            notify_args["dry_run"] = True
+        await dd.notify_deploy_summary(**notify_args)
         LOGGER.info("仅部署成功通知已发送: domain=%s mode=%s", domain_key, deploy_mode)
     except Exception as exc:
         LOGGER.warning("仅部署结果通知发送失败: domain=%s error=%s", domain_key, exc)

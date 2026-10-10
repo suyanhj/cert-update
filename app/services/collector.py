@@ -153,6 +153,7 @@ async def _auto_renew_and_deploy_expiring_certificates(certs: list[dict]) -> Non
 
     # 每轮采集按域名去重，避免同一证书被重复触发续签流程。
     seen_domains: set[str] = set()
+    seen_certificates: set[str] = set()
     triggered = 0
     for cert in certs:
         domain = str(cert.get("domain", "")).strip()
@@ -195,10 +196,24 @@ async def _auto_renew_and_deploy_expiring_certificates(certs: list[dict]) -> Non
                 domain=domain,
                 provider_name=None,
                 force=True,
+                automatic=True,
+                processed_certificates=seen_certificates,
             )
             mode = "unknown"
             if isinstance(result, dict):
                 mode = str(result.get("mode", "unknown") or "unknown")
+            if isinstance(result, dict) and result.get("renew_status") == "skipped":
+                logger.info(
+                    "自动续签编排跳过: domain=%s reason=%s matched_domain=%s",
+                    domain,
+                    result.get("reason", "cooldown"),
+                    result.get("matched_domain", ""),
+                )
+                continue
+            status = result.get("renew_status") if isinstance(result, dict) else None
+            if status in {"failed", "deploy_failed", "deploy_failed_pending"}:
+                logger.warning("自动续签未完成: domain=%s status=%s error=%s", domain, status, result.get("error"))
+                continue
             logger.info(
                 "自动续签编排完成: domain=%s provider=%s mode=%s",
                 domain,
@@ -221,8 +236,10 @@ async def collect_all() -> None:
     logger.info("collect_all START")
 
     errors = []
+    domains_collected = False
     try:
         await collect_domains()
+        domains_collected = True
     except Exception as exc:
         errors.append(("domains", exc))
         logger.exception("collect_domains failed")
@@ -240,11 +257,14 @@ async def collect_all() -> None:
         errors.append(("product_bindings_cache", exc))
         logger.exception("refresh_product_bindings_cache failed")
 
-    try:
-        await collect_certificates()
-    except Exception as exc:
-        errors.append(("certificates", exc))
-        logger.exception("collect_certificates failed")
+    if domains_collected:
+        try:
+            await collect_certificates()
+        except Exception as exc:
+            errors.append(("certificates", exc))
+            logger.exception("collect_certificates failed")
+    else:
+        logger.warning("本轮域名采集失败，跳过证书采集与自动续签，不使用历史快照执行操作")
 
     if errors:
         details = "; ".join(f"{stage}: {exc}" for stage, exc in errors)

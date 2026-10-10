@@ -66,6 +66,8 @@ class BaseAcmeRenewer(ABC):
         domain: str,
         provider_name: Optional[str] = None,
         force: bool = False,
+        *,
+        main_domain: Optional[str] = None,
     ) -> RenewedCert:
         """
         续签指定域名证书。
@@ -74,6 +76,7 @@ class BaseAcmeRenewer(ABC):
             domain: 续签目标域名。
             provider_name: 可选 provider 名称；为空时由实现类自行解析。
             force: 是否强制续签。
+            main_domain: 编排已解析的实际证书主域名；省略时按原始目标查询。
         """
         raise NotImplementedError
 

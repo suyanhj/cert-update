@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Iterable, Optional, Set
 
 
@@ -7,6 +8,33 @@ def normalize_domain(domain: str) -> str:
     if not domain:
         raise ValueError("domain 不能为空")
     return str(domain).strip().lower().rstrip(".")
+
+
+def normalize_blacklist(items: list[str]) -> list[str]:
+    """校验黑名单域名并归一化去重，非法配置提前报错。"""
+    result: list[str] = []
+    for item in items:
+        domain = normalize_domain(item)
+        base = domain[2:] if domain.startswith("*.") else domain
+        labels = base.split(".")
+        if len(base) > 253 or any(
+            not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+            for label in labels
+        ):
+            raise ValueError(f"黑名单域名无效: {item!r}")
+        if domain not in result:
+            result.append(domain)
+    return result
+
+
+def find_blacklisted_domain(domains: Iterable[str], blacklist: Iterable[str]) -> Optional[str]:
+    """按归一化后的完整域名精确查找黑名单命中项。"""
+    blocked = {normalize_domain(item) for item in blacklist}
+    for domain in domains:
+        normalized = normalize_domain(domain)
+        if normalized in blocked:
+            return normalized
+    return None
 
 
 def build_cert_domains(main_domain: str, sans: Iterable[str]) -> Set[str]:

@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock
 
 import pytest
 from box import Box
@@ -7,6 +8,14 @@ from box import Box
 from app.schemas.acme import RenewedCert
 
 import app  # noqa: F401  # 确保应用包可被导入
+
+
+@pytest.fixture(autouse=True)
+def mock_domain_resolution(monkeypatch):
+    """通知和部署单测隔离真实 ACME 查询，域名解析另有集成回归测试。"""
+    from app.services import renew_flow
+
+    monkeypatch.setattr(renew_flow, "resolve_renew_domain", AsyncMock(side_effect=lambda domain: domain))
 
 
 def _make_config(mode: str = "apply") -> Box:
@@ -74,7 +83,7 @@ def test_renew_and_plan_deploy_apply_success_sends_formatted_message(monkeypatch
     # 续签结果
     renewed = _make_renewed_cert()
 
-    async def fake_renew_certificate(domain: str, provider_name=None, force: bool = False):
+    async def fake_renew_certificate(domain: str, provider_name=None, force: bool = False, *, main_domain=None):
         assert domain == renewed.domain
         return renewed
 
@@ -245,7 +254,7 @@ def test_renew_and_plan_deploy_retry_failure_notifies_and_returns_failed(monkeyp
     # renew_certificate 始终抛错
     attempts = {"count": 0}
 
-    async def fake_renew_certificate(domain: str, provider_name=None, force: bool = False):
+    async def fake_renew_certificate(domain: str, provider_name=None, force: bool = False, *, main_domain=None):
         attempts["count"] += 1
         raise RuntimeError("renew failed in test")
 
@@ -312,12 +321,12 @@ def test_deploy_existing_only_apply_success_sends_deploy_summary(monkeypatch: py
 
     renewed = _make_renewed_cert()
 
-    async def fake_load_existing_certificate(domain: str, provider_name=None):
+    async def fake_load_existing_certificate(domain: str, provider_name=None, *, main_domain=None):
         assert domain == renewed.domain
         return renewed
 
     monkeypatch.setattr(renew_flow, "load_existing_certificate", fake_load_existing_certificate)
-    monkeypatch.setattr(renew_flow, "_resolve_effective_renew_domain", lambda d: d)
+    monkeypatch.setattr(renew_flow, "resolve_renew_domain", AsyncMock(side_effect=lambda d: d))
 
     fake_result = {
         "mode": "apply",
@@ -404,11 +413,11 @@ def test_deploy_existing_only_apply_failure_notifies_and_reraises(monkeypatch: p
 
     renewed = _make_renewed_cert()
 
-    async def fake_load_existing_certificate(domain: str, provider_name=None):
+    async def fake_load_existing_certificate(domain: str, provider_name=None, *, main_domain=None):
         return renewed
 
     monkeypatch.setattr(renew_flow, "load_existing_certificate", fake_load_existing_certificate)
-    monkeypatch.setattr(renew_flow, "_resolve_effective_renew_domain", lambda d: d)
+    monkeypatch.setattr(renew_flow, "resolve_renew_domain", AsyncMock(side_effect=lambda d: d))
 
     class FakeDeployService:
         async def apply_deploy(self, renewed_cert, provider_name=None):
@@ -453,9 +462,9 @@ def test_deploy_existing_only_keeps_deploy_error_when_failure_notification_fails
 
     cfg = _make_config(mode="apply")
     monkeypatch.setattr(renew_flow, "load_raw_config", lambda: cfg)
-    monkeypatch.setattr(renew_flow, "_resolve_effective_renew_domain", lambda d: d)
+    monkeypatch.setattr(renew_flow, "resolve_renew_domain", AsyncMock(side_effect=lambda d: d))
 
-    async def fake_load_existing_certificate(domain: str, provider_name=None):
+    async def fake_load_existing_certificate(domain: str, provider_name=None, *, main_domain=None):
         return _make_renewed_cert()
 
     class FakeDeployService:
@@ -540,7 +549,7 @@ def test_renew_and_plan_deploy_deploy_failed_sends_only_renew_notify(monkeypatch
 
     renewed = _make_renewed_cert()
 
-    async def fake_renew_certificate(domain: str, provider_name=None, force: bool = False):
+    async def fake_renew_certificate(domain: str, provider_name=None, force: bool = False, *, main_domain=None):
         return renewed
 
     monkeypatch.setattr(renew_flow, "renew_certificate", fake_renew_certificate)

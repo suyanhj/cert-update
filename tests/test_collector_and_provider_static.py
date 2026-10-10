@@ -47,7 +47,7 @@ def test_collect_all_runs_domains_then_certificates(monkeypatch):
     assert collector.state.LAST_UPDATED == "NOW"
 
 
-def test_collect_all_continues_when_domains_failed(monkeypatch):
+def test_collect_all_skips_certificates_when_domains_failed(monkeypatch):
     collector = _import_collector_with_fake_nicegui()
     calls = {"cert": 0}
 
@@ -73,7 +73,7 @@ def test_collect_all_continues_when_domains_failed(monkeypatch):
     with pytest.raises(RuntimeError, match="domains: domains failed"):
         asyncio.run(collector.collect_all())
 
-    assert calls["cert"] == 1
+    assert calls["cert"] == 0
     assert collector.state.LAST_UPDATED is None
 
 
@@ -157,9 +157,9 @@ def test_auto_renew_flow_triggers_for_expiring_certificates(monkeypatch):
     collector = _import_collector_with_fake_nicegui()
     calls: list[tuple[str, str | None, bool]] = []
 
-    async def fake_renew_and_plan_deploy(domain, provider_name=None, force=False):
-        calls.append((domain, provider_name, force))
-        return {"mode": "apply"}
+    async def fake_renew_and_plan_deploy(domain, provider_name=None, force=False, *, automatic=False, processed_certificates=None):
+        calls.append((domain, provider_name, force, automatic))
+        return {"mode": "apply", "renew_status": "success"}
 
     monkeypatch.setattr(
         collector,
@@ -186,9 +186,8 @@ def test_auto_renew_flow_triggers_for_expiring_certificates(monkeypatch):
         )
     )
 
-    # 自动续签应与 Web 强制续签共用全量部署语义：
-    # provider_name=None 避免限定部署云厂商，force=True 在命中阈值后立即续签。
-    assert calls == [("api.example.com", None, True)]
+    # 自动续签保留全量部署及阈值内执行命令，同时启用状态保护。
+    assert calls == [("api.example.com", None, True, True)]
 
 
 def test_static_provider_full_domain_expands_at_and_subdomain():

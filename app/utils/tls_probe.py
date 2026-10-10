@@ -11,6 +11,7 @@ from cryptography import x509
 from .logger import get_logger
 from .time import TimeUtil
 from .cert_parser import parse_cert_info_from_der
+from .domain_match import match_domain
 
 logger = get_logger("app")
 
@@ -24,7 +25,6 @@ _SSL_CONTEXT.verify_mode = ssl.CERT_NONE
 
 
 def _cert_match_domain(cert: x509.Certificate, domain: str) -> bool:
-    domain = domain.lower().lstrip("*.")
     names: list[str] = []
 
     # SAN 优先
@@ -41,14 +41,8 @@ def _cert_match_domain(cert: x509.Certificate, domain: str) -> bool:
         if attr.oid == x509.NameOID.COMMON_NAME:
             names.append(attr.value)
 
-    for name in names:
-        name = name.lower()
-        if name.startswith("*.") and domain.endswith(name[1:]):
-            return True
-        if name == domain:
-            return True
+    return match_domain({name.lower().rstrip(".") for name in names}, domain) is not None
 
-    return False
 
 
 def _extract_cert_info(cert_der: bytes, domain: str):
@@ -156,7 +150,9 @@ async def probe_domains_batch(
     Returns:
         域名到证书信息的映射
     """
-    current_concurrency = int(concurrency or load_raw_config().tls_scan_parallel)
+    current_concurrency = int(load_raw_config().tls_scan_parallel if concurrency is None else concurrency)
+    if current_concurrency <= 0:
+        raise ValueError("TLS 扫描并发数必须大于 0")
     semaphore = asyncio.Semaphore(current_concurrency)
     results = {}
     

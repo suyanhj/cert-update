@@ -146,6 +146,10 @@ def render_certificates():
             )
             return
 
+        if result.get("renew_status") == "skipped":
+            _notify_safe(client, result["message"], type="info", position="top-right")
+            return
+
         summary_text = format_provider_type_summary(result.get("summary"))
         success_count = int(result.get("success_count", 0) or 0)
         failed_count = int(result.get("failed_count", 0) or 0)
@@ -164,7 +168,7 @@ def render_certificates():
 
         _notify_safe(
             client,
-            f"仅部署 dry-run 计划生成完成: 命中 {planned} 个资源 | {summary_text}",
+            f"仅部署 dry-run 计划生成完成（尚未部署）: 命中 {planned} 个资源 | {summary_text}",
             type="positive",
             position="top-right",
             timeout=8000,
@@ -199,7 +203,7 @@ def render_certificates():
         with client:
             if renew_status == "skipped":
                 cooldown_days = result.get("cooldown_days")
-                tip = f"最近 {cooldown_days} 天内已成功续签，本次请求已跳过" if cooldown_days else "最近已成功续签，本次请求已跳过"
+                tip = result.get("message") or (f"最近 {cooldown_days} 天内已成功续签，本次请求已跳过" if cooldown_days else "最近已成功续签，本次请求已跳过")
                 ui.notify(
                     tip,
                     type="info",
@@ -211,8 +215,9 @@ def render_certificates():
 
             if renew_status in ("deploy_failed", "deploy_failed_pending"):
                 error = result.get("error", "部署失败，等待人工处理")
+                action = "部署失败并已停止自动处理" if result.get("mode") == "apply" else "部署预演失败，尚未部署"
                 ui.notify(
-                    f"证书已续签，但部署失败并已停止自动处理: {error}",
+                    f"证书已续签，但{action}: {error}",
                     type="negative",
                     multi_line=True,
                     position="top-right",
@@ -244,7 +249,7 @@ def render_certificates():
                 )
                 return
             ui.notify(
-                f"续签成功（重试 {retry_count} 次），dry-run 计划生成完成: 命中 {len(result.get('planned_bind_actions', []))} 个资源 | {summary_text}",
+                f"续签成功（重试 {retry_count} 次），dry-run 计划生成完成（尚未部署）: 命中 {len(result.get('planned_bind_actions', []))} 个资源 | {summary_text}",
                 type="positive",
                 position="top-right",
                 timeout=8000,
@@ -382,6 +387,9 @@ def render_domains():
                 issue_status = str(result.get('issue_status', 'unknown'))
                 summary_text = format_provider_type_summary(result.get('summary'))
 
+                if issue_status == 'skipped':
+                    _notify_safe(client, result['message'], type='info', position='top-right')
+                    return
                 if issue_status == 'failed':
                     _notify_safe(
                         client,
@@ -394,9 +402,10 @@ def render_domains():
                     )
                     return
                 if issue_status == 'deploy_failed':
+                    action = "部署失败" if result.get('mode') == 'apply' else "部署预演失败，尚未部署"
                     _notify_safe(
                         client,
-                        f"证书已签发，但部署失败: {result.get('error', '未知错误')}，可使用“部署”重试",
+                        f"证书已签发，但{action}: {result.get('error', '未知错误')}，可使用“部署”重试",
                         type='negative',
                         multi_line=True,
                         position='top-right',
@@ -411,7 +420,7 @@ def render_domains():
                     )
                 else:
                     message = (
-                        "签发成功，dry-run 计划生成完成: "
+                        "签发成功，dry-run 计划生成完成（尚未部署）: "
                         f"命中 {len(result.get('planned_bind_actions', []))} 个资源 | {summary_text}"
                     )
                 _notify_safe(

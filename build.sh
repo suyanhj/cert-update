@@ -7,7 +7,7 @@ set -eu
 
 VERSION="${1:-}"
 SERVICE="${2:-cert-monitor}"
-IMG=
+HB="habor.testali.sqxs123.com/mid/"
 
 if [[ -z "$VERSION" ]]; then
   echo "示例: $0 1.2.3"
@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 
-IMAGE_BASE="${IMAGE_BASE:-$IMG$SERVICE}"
+IMAGE_BASE="${IMAGE_BASE:-$HB$SERVICE}"
 IMAGE_LATEST="${IMAGE_BASE}:latest"
 IMAGE_VERSIONED="${IMAGE_BASE}:${VERSION}"
 
@@ -30,4 +30,3 @@ docker push "$IMAGE_VERSIONED"
 docker push "$IMAGE_LATEST"
 
 echo "[dk-build] 完成: 已推送 ${IMAGE_VERSIONED} 与 ${IMAGE_LATEST}"
-

@@ -388,20 +388,22 @@ class DingDingNotifier:
         domain: str,
         success: bool,
         message: str = "",
+        *,
+        dry_run: bool = False,
     ) -> None:
-        """仅部署（不续签）结果汇总通知。"""
+        """仅部署或部署预演（不续签）的结果汇总通知。"""
         if success:
             event = AlertEvent(
                 level=AlertLevel.INFO,
-                title="证书部署成功",
-                message=message or "证书已成功部署",
+                title="证书部署预演完成" if dry_run else "证书部署成功",
+                message=message or ("部署预演完成，尚未部署" if dry_run else "证书已成功部署"),
                 source="deploy",
                 domain="",
             )
         else:
             event = AlertEvent(
                 level=AlertLevel.CRITICAL,
-                title="证书部署失败",
+                title="证书部署预演失败" if dry_run else "证书部署失败",
                 message=message,
                 source="deploy",
                 domain=domain,

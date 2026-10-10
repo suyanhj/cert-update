@@ -1,6 +1,8 @@
 import json
 import threading
 import os
+import shutil
+from uuid import uuid4
 from pathlib import Path
 from typing import Any
 from app.utils import logger, time
@@ -20,7 +22,19 @@ class StoreBase:
             if not self._path.exists():
                 self.logger.debug("Store file not found, using empty state: %s", self._path)
                 return
-            raw = json.loads(self._path.read_text(encoding="utf-8"))
+            try:
+                raw = json.loads(self._path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                # 先保留损坏文件原字节；备份失败必须报错，防止后续写入覆盖证据。
+                backup = self._path.with_name(f"{self._path.name}.corrupt-{uuid4().hex}.bak")
+                try:
+                    shutil.copy2(self._path, backup)
+                except OSError:
+                    self.logger.exception("损坏状态文件备份失败，停止恢复: path=%s", self._path)
+                    raise
+                self._persist()
+                self.logger.error("状态文件损坏，已备份并使用空状态: path=%s backup=%s", self._path, backup)
+                return
             self._load_from_raw(raw)
             self.logger.debug("Store loaded: %s", self._path)
 

@@ -18,35 +18,25 @@ def start_scheduler(interval: int = 60, run_immediately: bool = True):
 
     _stop_event.clear()
 
+    async def _wait_interval():
+        try:
+            await asyncio.wait_for(_stop_event.wait(), timeout=interval * 60)
+        except asyncio.TimeoutError:
+            pass
+
     async def _loop():
         logger.info("scheduler started (interval=%s min, run_immediately=%s)", interval, run_immediately)
         try:
-            first_round = True
+            if not run_immediately:
+                await _wait_interval()
             while not _stop_event.is_set():
-                if first_round and not run_immediately:
-                    try:
-                        await asyncio.sleep(interval * 60)
-                    except asyncio.CancelledError:
-                        pass
-                    if _stop_event.is_set():
-                        break
-                first_round = False
-
                 try:
                     await collect_all()
                 except Exception:
-                    # 单次失败 ≠ 停调度
+                    # 单次失败继续下一轮，停止请求等待当前采集及部署完整结束。
                     logger.exception("collect_all failed, skip this round")
-
-                # 可被 cancel 的 sleep
-                try:
-                    await asyncio.sleep(interval * 60)
-                except asyncio.CancelledError:
-                    raise
-
-        except asyncio.CancelledError:
-            logger.info("scheduler cancelled")
-            raise
+                if not _stop_event.is_set():
+                    await _wait_interval()
         finally:
             logger.info("scheduler stopped")
 
@@ -59,14 +49,12 @@ async def stop_scheduler():
     if not _scheduler_task:
         return
 
-    logger.info("stopping scheduler...")
+    logger.info("停止调度，等待当前采集及证书操作完成...")
     _stop_event.set()
-    _scheduler_task.cancel()
 
-    try:
-        await _scheduler_task
-    except asyncio.CancelledError:
-        pass
-
-    _scheduler_task = None
+    task = _scheduler_task
+    # 调用方取消等待时不取消后台采集，避免遗留仍在执行的续签线程。
+    await asyncio.shield(task)
+    if _scheduler_task is task:
+        _scheduler_task = None
 

@@ -36,6 +36,19 @@ from app.utils.time import TimeUtil
 LOGGER = get_logger("app")
 
 
+class DeploymentError(RuntimeError):
+    """部署失败异常，保留成功目标、失败目标和汇总供通知及调用方使用。"""
+
+    def __init__(self, result: Dict[str, Any]) -> None:
+        self.result = result
+        failures = [item for item in result["bind_results"] if item.get("status") == "failed"]
+        details = "; ".join(
+            f"{item.get('provider')}/{item.get('product_id')}: {item.get('message')}"
+            for item in failures
+        )
+        super().__init__(f"证书部署存在失败: {len(failures)} 个目标失败; {details}")
+
+
 class _LegacyProviderDeployer(CertificateDeployer):
     """兼容旧版 provider 接口（upload/deploy_certificate_with_cert_id）。"""
     def __init__(self, provider: Provider) -> None:
@@ -106,6 +119,14 @@ class DeployService:
     def __init__(self) -> None:
         self.conf = load_raw_config()
         self._binding_store = ProductBindingStore()
+
+    @staticmethod
+    def _check_certificate_expiry(renewed_cert: RenewedCert) -> None:
+        """部署前仅检查到期时间，过期证书不进入上传及远端操作。"""
+        expires_at = TimeUtil.parse(renewed_cert.expires_at)
+        if expires_at <= TimeUtil.now_utc():
+            LOGGER.error("证书已过期，拒绝部署: domain=%s expires_at=%s", renewed_cert.domain, expires_at)
+            raise ValueError(f"证书已过期，拒绝部署: {renewed_cert.domain}，到期时间 {expires_at.isoformat()}")
 
     def _binding_cache_settings(self) -> tuple[bool, int, bool]:
         cache_conf = self.conf.deploy.binding_cache
@@ -303,6 +324,9 @@ class DeployService:
                             "provider": match.provider_name,
                             "product_type": match.product_type,
                             "product_id": match.product_id,
+                            "provider_type": match.provider_type,
+                            "domain": match.domain,
+                            "status": "failed",
                             "reason": f"apply 前实时校验失败，已跳过: {exc}",
                         }
                     )
@@ -458,31 +482,25 @@ class DeployService:
 
     async def _plan_nginx_deploy(self, renewed_cert: RenewedCert) -> Dict[str, Any]:
         planner = NginxDeployPlanner()
-        try:
-            return planner.plan_for_certificate(main_domain=renewed_cert.domain, sans=renewed_cert.sans)
-        except Exception as exc:
-            LOGGER.warning("nginx plan skipped: %s", exc)
-            return {
-                "mode": "dry-run",
-                "main_domain": renewed_cert.domain,
-                "sans": list(renewed_cert.sans),
-                "matched_rule_count": 0,
-                "target_count": 0,
-                "targets": [],
-                "errors": [str(exc)],
-            }
+        return planner.plan_for_certificate(main_domain=renewed_cert.domain, sans=renewed_cert.sans)
 
     async def _apply_nginx_deploy(self, renewed_cert: RenewedCert) -> List[Dict[str, Any]]:
         plan = await self._plan_nginx_deploy(renewed_cert)
+        if plan.get("errors"):
+            raise RuntimeError(f"Nginx 部署计划失败: {plan['errors']}")
         targets = plan.get("targets", [])
-        if not isinstance(targets, list) or not targets:
+        if not isinstance(targets, list):
+            raise ValueError("Nginx 部署目标必须是列表")
+        if not targets:
             return []
 
+        auth_error = None
         try:
             auth_map = self._build_nginx_target_auth_map(self.conf)
         except Exception as exc:
-            LOGGER.warning("nginx 认证配置解析失败，跳过 nginx 部署: %s", exc)
-            return []
+            LOGGER.error("nginx 认证配置解析失败: %s", exc)
+            auth_map = {}
+            auth_error = str(exc)
 
         bind_results: List[Dict[str, Any]] = []
         deploy_state = DeployStateStore()
@@ -490,11 +508,30 @@ class DeployService:
         for idx, target in enumerate(targets):
             host_name = str(target.get("host_name", "") or "").strip()
             host = str(target.get("host", "") or "").strip()
+            error = auth_error
             if not host_name or not host:
-                LOGGER.warning("nginx 计划目标缺少 host_name/host，跳过: %s", target)
-                continue
-            if host_name not in auth_map:
-                LOGGER.warning("nginx 计划目标缺少认证信息，跳过: host=%s", host_name)
+                error = "Nginx 计划目标缺少 host_name/host"
+            elif host_name not in auth_map and not error:
+                error = f"Nginx 计划目标缺少认证信息: host={host_name}"
+            if error:
+                LOGGER.error("nginx 目标部署失败: host=%s error=%s", host_name, error)
+                bind_results.append({
+                    "provider_type": "nginx",
+                    "provider": "nginx-ssh",
+                    "product_type": "nginx",
+                    "product_id": host_name or f"target#{idx}",
+                    "domain": renewed_cert.domain,
+                    "group": str(target.get("target_group", "") or ""),
+                    "status": "failed",
+                    "message": error,
+                })
+                deploy_state.record_failure(
+                    domain=renewed_cert.domain,
+                    provider="nginx-ssh",
+                    product_type="nginx",
+                    product_id=host_name or f"target#{idx}",
+                    message=error,
+                )
                 continue
 
             auth = auth_map[host_name]
@@ -665,6 +702,8 @@ class DeployService:
                     "provider": provider.name,
                     "product_type": "*",
                     "product_id": "*",
+                    "provider_type": provider_type,
+                    "status": "failed",
                     "reason": f"获取产品绑定失败: {exc}",
                 })
                 continue
@@ -735,6 +774,8 @@ class DeployService:
         if deploy_mode != "dry-run":
             raise RuntimeError(f"当前 deploy.mode={deploy_mode}，该入口仅支持 dry-run")
 
+        self._check_certificate_expiry(renewed_cert)
+
         providers, cert_domains, matches, skipped = await self._collect_matches(
             renewed_cert=renewed_cert,
             provider_name=provider_name,
@@ -757,13 +798,19 @@ class DeployService:
                 renewed_cert.domain,
                 len(skipped),
             )
+        query_errors = [item["reason"] for item in skipped if item.get("status") == "failed"]
+        if query_errors:
+            raise RuntimeError(f"部署预演查询失败: {'; '.join(query_errors)}")
         nginx_plan = await self._plan_nginx_deploy(renewed_cert)
+        if nginx_plan.get("errors"):
+            raise RuntimeError(f"Nginx 部署预演失败: {nginx_plan['errors']}")
         nginx_targets = nginx_plan.get("targets", [])
         if not isinstance(nginx_targets, list):
             nginx_targets = []
 
         plan: Dict[str, Any] = {
             "mode": "dry-run",
+            "deploy_status": "planned",
             "cert": {
                 "domain": renewed_cert.domain,
                 "sans": sorted(list(cert_domains)),
@@ -843,18 +890,29 @@ class DeployService:
 
             provider_key = self._provider_cache_key(provider)
             provider_name_value = self._provider_name(provider)
-            deployer = self._build_deployer(provider)
-            cert_id = await deployer.upload_certificate(
-                renewed_cert.cert_pem,
-                renewed_cert.key_pem,
-                renewed_cert.domain,
-            )
-            if not cert_id:
-                raise RuntimeError(f"[{provider.name}] 腾讯云证书上传后未返回 CertificateId")
-            deployer_map[provider_key] = deployer
-            cert_id_map[provider_key] = cert_id
+            try:
+                deployer = self._build_deployer(provider)
+                cert_id = await deployer.upload_certificate(
+                    renewed_cert.cert_pem,
+                    renewed_cert.key_pem,
+                    renewed_cert.domain,
+                )
+                if not cert_id:
+                    raise RuntimeError(f"[{provider.name}] 腾讯云证书上传后未返回 CertificateId")
+                deployer_map[provider_key] = deployer
+                cert_id_map[provider_key] = cert_id
 
-            ssl_bindings = await discover(cert_id, **scan_flags)
+                ssl_bindings = await discover(cert_id, **scan_flags)
+            except Exception as exc:
+                LOGGER.exception("腾讯账号证书上下文准备失败，继续其他账号: provider=%s", provider_key)
+                skipped.append({
+                    "provider_type": "tencent", "provider": provider_name_value,
+                    "product_type": "*", "product_id": "*", "domain": renewed_cert.domain,
+                    "status": "failed", "reason": f"账号证书上下文准备失败: {exc}",
+                })
+                match_map = {key: value for key, value in match_map.items()
+                             if f"{value.provider_type}:{value.provider_name}" != provider_key}
+                continue
             added = 0
             for binding in ssl_bindings:
                 product_type = str(binding.product_type or "").strip().lower()
@@ -919,6 +977,8 @@ class DeployService:
         deploy_mode = self.conf.deploy.mode.strip().lower()
         if deploy_mode != "apply":
             raise RuntimeError(f"当前 deploy.mode={deploy_mode}，该入口仅支持 apply")
+
+        self._check_certificate_expiry(renewed_cert)
 
         providers, cert_domains, matches, skipped = await self._collect_matches(
             renewed_cert=renewed_cert,
@@ -992,22 +1052,31 @@ class DeployService:
         provider_map = {self._provider_cache_key(p): p for p in providers}
         deploy_state = DeployStateStore()
 
-        # 只为有命中匹配的 provider 构建 deployer，避免未命中云厂商也被实例化（如仅匹配奇裕时不应建华为 deployer）
-        matched_provider_keys = {f"{m.provider_type}:{m.provider_name}" for m in matches}
-        for provider in providers:
-            provider_cache_key = self._provider_cache_key(provider)
-            if provider_cache_key not in matched_provider_keys:
-                continue
-            if provider_cache_key not in deployer_map:
-                deployer_map[provider_cache_key] = self._build_deployer(provider)
-
         # 按 provider 分组：同一 provider 只上传一次证书到 CAS，再复用 cert_id 部署到该 provider 下所有目标
         matches_by_provider: Dict[str, List[DeployMatchResult]] = {}
         for match in matches:
             key = f"{match.provider_type}:{match.provider_name}"
             matches_by_provider.setdefault(key, []).append(match)
 
-        bind_results: List[Dict[str, Any]] = []
+        # 查询失败不能只留在 skipped 中，否则其他目标成功会掩盖失败。
+        bind_results: List[Dict[str, Any]] = [
+            {
+                "provider_type": item.get("provider_type", ""),
+                "provider": item.get("provider", ""),
+                "product_type": item.get("product_type", "*"),
+                "product_id": item.get("product_id", "*"),
+                "domain": item.get("domain", renewed_cert.domain),
+                "status": "failed",
+                "message": item["reason"],
+            }
+            for item in skipped if item.get("status") == "failed"
+        ]
+        for item in bind_results:
+            deploy_state.record_failure(
+                domain=item["domain"], provider=item["provider"],
+                product_type=item["product_type"], product_id=item["product_id"],
+                message=item["message"],
+            )
         for provider_cache_key, provider_matches in matches_by_provider.items():
             provider = provider_map.get(provider_cache_key)
             if not provider:
@@ -1022,40 +1091,45 @@ class DeployService:
                         "message": f"provider 不存在: {provider_cache_key}",
                     })
                 continue
-            deployer = deployer_map.get(provider_cache_key)
-            if not deployer:
-                for match in provider_matches:
-                    bind_results.append({
-                        "provider_type": match.provider_type,
-                        "provider": match.provider_name,
-                        "product_type": match.product_type,
-                        "product_id": match.product_id,
-                        "domain": match.domain,
-                        "status": "skipped",
-                        "message": f"Deployer 未初始化: {provider_cache_key}",
-                    })
-                continue
-
-            cert_id = uploaded_cert_ids.get(provider_cache_key)
-            if cert_id is None:
-                prepare_targets = [
-                    DeployTarget(
-                        provider=item.provider_type,
-                        product_type=item.product_type,
-                        product_id=item.product_id,
-                        domain=item.domain,
-                        listener_port=item.listener_port,
-                        metadata=item.metadata or {},
+            try:
+                deployer = deployer_map.get(provider_cache_key)
+                if deployer is None:
+                    deployer = self._build_deployer(provider)
+                cert_id = uploaded_cert_ids.get(provider_cache_key)
+                if cert_id is None:
+                    prepare_targets = [
+                        DeployTarget(
+                            provider=item.provider_type,
+                            product_type=item.product_type,
+                            product_id=item.product_id,
+                            domain=item.domain,
+                            listener_port=item.listener_port,
+                            metadata=item.metadata or {},
+                        )
+                        for item in provider_matches
+                    ]
+                    # 按实际命中产品准备证书；默认实现仍保持“同 provider 上传一次”的旧行为。
+                    cert_id = await deployer.prepare_certificate(
+                        renewed_cert.cert_pem,
+                        renewed_cert.key_pem,
+                        renewed_cert.domain,
+                        prepare_targets,
                     )
-                    for item in provider_matches
-                ]
-                # 按实际命中产品准备证书；默认实现仍保持“同 provider 上传一次”的旧行为。
-                cert_id = await deployer.prepare_certificate(
-                    renewed_cert.cert_pem,
-                    renewed_cert.key_pem,
-                    renewed_cert.domain,
-                    prepare_targets,
-                )
+            except Exception as exc:
+                LOGGER.exception("账号证书准备失败，继续其他账号: provider=%s", provider_cache_key)
+                for match in provider_matches:
+                    message = f"账号证书准备失败: {exc}"
+                    bind_results.append({
+                        "provider_type": match.provider_type, "provider": match.provider_name,
+                        "product_type": match.product_type, "product_id": match.product_id,
+                        "domain": match.domain, "status": "failed", "message": message,
+                        "old_cert_id": match.current_cert_id,
+                    })
+                    deploy_state.record_failure(
+                        domain=match.domain, provider=match.provider_name,
+                        product_type=match.product_type, product_id=match.product_id, message=message,
+                    )
+                continue
 
             for match in provider_matches:
                 target = DeployTarget(
@@ -1130,15 +1204,34 @@ class DeployService:
                         message=error_msg,
                     )
 
-        nginx_bind_results = await self._apply_nginx_deploy(renewed_cert)
+        try:
+            nginx_bind_results = await self._apply_nginx_deploy(renewed_cert)
+        except Exception as exc:
+            LOGGER.exception("Nginx 部署阶段失败")
+            nginx_bind_results = [{
+                "provider_type": "nginx",
+                "provider": "nginx-ssh",
+                "product_type": "nginx",
+                "product_id": "*",
+                "domain": renewed_cert.domain,
+                "status": "failed",
+                "message": str(exc),
+            }]
+            deploy_state.record_failure(
+                domain=renewed_cert.domain, provider="nginx-ssh",
+                product_type="nginx", product_id="*", message=str(exc),
+            )
         bind_results.extend(nginx_bind_results)
 
         if not bind_results:
             raise RuntimeError("未发现可部署的证书目标")
 
         failed = [item for item in bind_results if item.get("status") == "failed"]
+        success_count = sum(item.get("status") == "success" for item in bind_results)
+        deploy_status = "partial_failed" if failed and success_count else "failed" if failed else "success"
         result: Dict[str, Any] = {
             "mode": "apply",
+            "deploy_status": deploy_status,
             "cert": {
                 "domain": renewed_cert.domain,
                 "sans": sorted(list(cert_domains)),
@@ -1149,10 +1242,10 @@ class DeployService:
             "summary": self._summarize_bind_results(bind_results),
             "skipped": skipped,
             "failed_count": len(failed),
-            "success_count": len([i for i in bind_results if i.get("status") == "success"]),
+            "success_count": success_count,
             "nginx_target_count": len(nginx_bind_results),
         }
         if failed:
             LOGGER.warning("证书部署完成但存在 %d 个目标失败", len(failed))
-            raise RuntimeError(f"证书部署存在失败: {len(failed)} 个目标失败")
+            raise DeploymentError(result)
         return result

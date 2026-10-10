@@ -64,9 +64,12 @@
 
 - `issue_certificate(domain, sans, provider_name=None)`：通过同一 Provider 的 acme.sh DNS 插件首次签发，不自动增加 SAN。
 - `issue_and_plan_deploy(domain, domains, provider_name=None)`：显式接收用户确认的域名集合；签发只尝试一次，不读写续签冷却状态，成功后复用现有 dry-run/apply 部署流程。
-- `renew_certificate(domain, provider_name=None, force=False)`：单域续签，domain 为空抛 `ValueError`。
+- `resolve_renew_domain(domain)`：仅用原始目标查询 acme.sh 已有证书，按同名 `Main_Domain`、精确 SAN、单级通配覆盖顺序选择，不读取采集快照推导父域。本地自签模式直接使用归一化原始目标。
+- `renew_certificate(domain, provider_name=None, force=False, *, main_domain=None)`：单域续签，domain 为空抛 `ValueError`；编排传入本轮已解析的 `main_domain` 后直接使用，不再次匹配覆盖关系。独立调用省略该参数时匹配原始目标一次。
 - `renew_and_plan_deploy(...)`：只对续签失败按配置重试；续签成功但部署失败时保存 `deploy_failed` 并等待人工处理，后续自动任务不重试部署也不重复续签。
 - `deploy_existing_only(...)`：不续签，只加载已有证书后走 dry-run 或 apply；成功/失败都会发送部署通知（标题为「证书部署成功/失败」，正文格式与续签成功通知一致）。
+
+续签与仅部署入口在解析后固定实际 `Main_Domain`，命令、信息查询、冷却、重试记录、通知及手动部署补偿均使用同一证书标识。原始目标和解析后的主域名都检查黑名单。目标 `api.xx.hj.com` 由 `*.xx.hj.com` 覆盖时，使用 `-d xx.hj.com`，不会把 `xx.hj.com` 再交给 `*.hj.com` 匹配。若 acme.sh 只有 `hj.com / *.hj.com`，立即报告原始目标无覆盖证书，续签编排返回 `failed`、`retry_count=0`，不执行续签和部署，也不自动签发；自动采集继续处理其他目标。
 - 与采集链路关系：`collect_certificates` 完成后会对 `days <= auto_renew_days` 的证书按域名去重触发。
 
 ### 8.1 DNS-01 首次签发

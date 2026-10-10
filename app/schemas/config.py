@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
+from app.utils.domain_match import normalize_blacklist
+
 
 class AcmeConfig(BaseModel):
     """ACME 配置。"""
@@ -411,6 +413,16 @@ class AppConfig(BaseSettings):
         default_factory=list,
         description="顶层白名单：命中后跳过证书/域名过期告警",
     )
+    blacklist: List[str] = Field(
+        default_factory=list,
+        description="证书操作黑名单：精确命中后跳过签发、续签及仅部署，强制续签同样生效",
+    )
+
+    @field_validator("blacklist")
+    @classmethod
+    def validate_blacklist(cls, value: List[str]) -> List[str]:
+        return normalize_blacklist(value)
+
     domain_dns_overrides: Dict[str, str] = Field(
         default_factory=dict,
         description="根域名到 DNS Provider 配置名称的人工覆盖映射",
@@ -428,7 +440,7 @@ class AppConfig(BaseSettings):
     auto_renew_days: int = Field(20, description="证书剩余多少天时自动触发续签")
     check_interval_minutes: int = Field(10, description="轮询云平台的频率（分钟）")
     log_level: str = Field("info", description="全局日志级别：debug / info / warning / error")
-    tls_scan_parallel: int = Field(10, description="TLS 探测并发数")
+    tls_scan_parallel: int = Field(10, gt=0, description="TLS 探测并发数")
     http_scan_parallel: int = Field(10, description="HTTP 探测并发数（DNS 子域探测等）")
     tls_timeout_seconds: int = Field(5, description="TLS 探测超时时间（秒）")
     http_timeout_seconds: int = Field(2, description="HTTP 探测超时时间（秒）")

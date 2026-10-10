@@ -60,7 +60,9 @@
 ## 7. 失败策略与返回
 
 - `plan_dry_run()` 与 `apply_deploy()` 都会校验 `deploy.mode`；不匹配则抛 `RuntimeError`。
-- `apply_deploy()` 汇总失败项后会抛 `RuntimeError`，并在日志中给出失败数量。
+- `apply_deploy()` 汇总失败项后抛出继承 `RuntimeError` 的 `DeploymentError`，异常的 `result` 保留目标结果、成功/失败数量和 `deploy_status`：完整成功为 `success`，部分成功部分失败为 `partial_failed`，全部失败为 `failed`。
+- Nginx 规划、认证或目标配置错误及云绑定查询/实时校验接口错误均计入失败；实时查询成功确认已删除目标仍正常跳过。
+- `dry-run` 返回 `deploy_status=planned`，页面和通知明确尚未部署，不记录整体部署成功或启动成功冷却期。签发/续签成功与部署结果分别表达。
 - `apply_deploy()` 没有任何云产品或 Nginx 目标时也会抛错，避免误发部署成功通知。
 - SDK 异常在 deployer 内转为失败结果或记录日志，由上层统一聚合处理。
 

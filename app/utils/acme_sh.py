@@ -117,6 +117,8 @@ class AcmeShRenewer(BaseAcmeRenewer):
         domain: str,
         provider_name: Optional[str] = None,
         force: bool = False,
+        *,
+        main_domain: Optional[str] = None,
     ) -> RenewedCert:
         """
         续签指定域名证书。
@@ -125,6 +127,7 @@ class AcmeShRenewer(BaseAcmeRenewer):
             domain: 需要续签的主域名，例如 `example.com`。
             provider_name: 可选 provider 名称。默认先通过域名映射自动解析。
             force: 是否附加 `--force` 参数强制续签。
+            main_domain: 编排已从原始目标解析的 Main_Domain，传入后不再匹配覆盖关系。
 
         Returns:
             `RenewedCert`: 包含证书路径、PEM 内容、有效期与证书元信息。
@@ -146,16 +149,14 @@ class AcmeShRenewer(BaseAcmeRenewer):
             )
             return self._renew_with_cryptography(domain)
 
-        # 非 staging 模式：先解析 provider，再走 acme.sh 续签
-        resolved_provider_name = self._resolve_provider_name(domain, provider_name)
+        # 主域名只从原始目标解析一次，编排传入的结果直接用于命令和凭证选择。
+        main_domain = main_domain or self.resolve_main_domain(domain)
+        resolved_provider_name = self._resolve_provider_name(main_domain, provider_name)
         LOGGER.info(
             "renew provider resolved: domain=%s provider=%s",
             domain,
             resolved_provider_name,
         )
-        # 线上环境要求证书已通过 acme.sh 手动签发一次，否则仅记录失败原因，由上层做页面通知。
-        main_domain = self._require_acme_main_domain(domain, action="renew")
-
         env = self._build_provider_env(resolved_provider_name)
         renew_cmd = self._build_renew_cmd(main_domain, force=force)
 
@@ -170,11 +171,18 @@ class AcmeShRenewer(BaseAcmeRenewer):
 
         return self._build_renewed_cert_from_info(main_domain, info_map)
 
-    def load_existing(self, domain: str, provider_name: Optional[str] = None) -> RenewedCert:
+    def load_existing(
+        self,
+        domain: str,
+        provider_name: Optional[str] = None,
+        *,
+        main_domain: Optional[str] = None,
+    ) -> RenewedCert:
         """
         仅加载现有证书，不执行 acme.sh --renew。
         - 线上：acme.sh 模式下，通过 --info 获取路径并读取文件。
         - 本地自签：从 cert_storage_path/domain 下直接读取已有文件，若不存在则生成自签。
+        - main_domain 仅接受编排已从原始目标解析的 Main_Domain，避免再次匹配父证书。
         """
         if not domain:
             LOGGER.error("load_existing failed: domain is empty")
@@ -184,14 +192,13 @@ class AcmeShRenewer(BaseAcmeRenewer):
             LOGGER.info("staging 自签模式下 load_existing，直接复用/生成本地证书: domain=%s", domain)
             return self._renew_with_cryptography(domain)
 
-        resolved_provider_name = self._resolve_provider_name(domain, provider_name)
+        main_domain = main_domain or self.resolve_main_domain(domain)
+        resolved_provider_name = self._resolve_provider_name(main_domain, provider_name)
         LOGGER.info(
             "load_existing provider resolved: domain=%s provider=%s",
             domain,
             resolved_provider_name,
         )
-        main_domain = self._require_acme_main_domain(domain, action="load_existing")
-
         env = self._build_provider_env(resolved_provider_name)
         info_cmd = [self._acme_sh, "--info", "-d", main_domain]
         LOGGER.info("执行 acme.sh 信息查询命令(load_existing): %s", " ".join(info_cmd))
@@ -409,6 +416,15 @@ class AcmeShRenewer(BaseAcmeRenewer):
             )
         return dns_plugin
 
+    def resolve_main_domain(self, domain: str) -> str:
+        """从原始目标选择已有证书；本地自签模式直接使用归一化目标。"""
+        target = normalize_domain(domain)
+        if not target:
+            raise AcmeShConfigError("domain 不能为空")
+        if self._should_use_self_signed():
+            return target
+        return self._require_acme_main_domain(target, action="resolve")
+
     def _require_acme_main_domain(self, domain: str, action: str) -> str:
         """解析 acme.sh 中覆盖该域名的 Main_Domain；未命中则立即失败。"""
         main_domain = self._resolve_acme_main_domain(domain)
@@ -530,10 +546,10 @@ class AcmeShRenewer(BaseAcmeRenewer):
         wildcard_base_len = -1
 
         for main, cert_domains in entries:
+            if normalize_domain(main) == target:
+                return main
             hit = match_domain(cert_domains, target)
             if hit == "exact":
-                if main == target:
-                    return main
                 if exact_main is None:
                     exact_main = main
                 continue

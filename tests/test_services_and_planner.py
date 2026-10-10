@@ -703,6 +703,7 @@ def test_verify_realtime_exception_skips_provider_and_alerts(monkeypatch):
     assert len(skipped) == 2
     for s in skipped:
         assert "实时校验失败" in s["reason"]
+        assert s["status"] == "failed"
     # 整 provider 仅发一条告警
     assert len(notifier.events) == 1
     assert notifier.events[0].level == AlertLevel.WARNING
