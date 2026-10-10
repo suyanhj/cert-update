@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # 构建 cert-monitor 镜像并打双标签后推送：参数版本 + latest（新版本）
-# 用法：./dk-build.sh <版本号> [服务名]
+# 用法：./build.sh <版本号> [服务名]
 # 可选环境变量：IMAGE_BASE（不含标签，默认与 docker-compose.yml 中 image 一致）
 
 set -eu
 
 VERSION="${1:-}"
 SERVICE="${2:-cert-monitor}"
-HB="habor.testali.sqxs123.com/mid/"
+HB=""
 
 if [[ -z "$VERSION" ]]; then
   echo "示例: $0 1.2.3"
-  echo "      IMAGE_BASE=registry.example.com/ns/app $0 2.0.0"
+  echo "      HB=registry.example.com/ns/app $0 2.0.0"
   exit 1
 fi
 
