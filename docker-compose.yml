@@ -1,0 +1,19 @@
+services:
+  cert-monitor:
+    container_name: cert-monitor
+    image: habor.testali.sqxs123.com/mid/cert-monitor
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./ssh:/app/ssh
+      - /root/.acme.sh:/root/.acme.sh
+      - /etc/nginx:/etc/nginx
+    environment:
+      - TZ=Asia/Shanghai

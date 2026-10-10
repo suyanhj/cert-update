@@ -415,7 +415,7 @@ class AppConfig(BaseSettings):
     )
     blacklist: List[str] = Field(
         default_factory=list,
-        description="证书操作黑名单：精确命中后跳过签发、续签及仅部署，强制续签同样生效",
+        description="证书操作黑名单：普通域名精确匹配、*. 匹配直属一级子域，命中后跳过签发、续签及仅部署",
     )
 
     @field_validator("blacklist")

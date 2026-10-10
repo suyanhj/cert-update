@@ -190,9 +190,9 @@ alert:
 # 告警白名单：在此列表中的域名不会触发证书/域名到期告警
 whitelist: []
 
-# 证书操作黑名单：精确匹配，跳过签发、续签及仅部署，强制续签也不能绕过
+# 证书操作黑名单：普通域名精确匹配，*. 匹配直属一级子域，强制续签也不能绕过
 # 忽略大小写、首尾空格和末尾点；example.com 不会自动拦截 api.example.com
-# *.example.com 只匹配同名通配域名；签发中任意域名命中会跳过整次操作
+# *.example.com 匹配同名通配域名及 api.example.com，不匹配 example.com 或 deep.api.example.com
 blacklist: []
 
 # DNS 多平台同时残留同名 Zone 时，可按根域名指定实际托管账号；一般无需配置，系统优先查询公网权威 NS。

@@ -20,7 +20,9 @@ from app.utils.domain_match import find_blacklisted_domain
     [
         ([" EXAMPLE.COM. "], "example.com"),
         (["*.Example.com."], "*.example.com"),
-        (["api.example.com"], None),
+        (["api.example.com"], "*.example.com"),
+        ([" PC.EXAMPLE.COM. "], "*.example.com"),
+        (["deep.api.example.com"], None),
         (["notexample.com", "example.com.evil"], None),
     ],
 )

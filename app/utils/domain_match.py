@@ -28,12 +28,15 @@ def normalize_blacklist(items: list[str]) -> list[str]:
 
 
 def find_blacklisted_domain(domains: Iterable[str], blacklist: Iterable[str]) -> Optional[str]:
-    """按归一化后的完整域名精确查找黑名单命中项。"""
-    blocked = {normalize_domain(item) for item in blacklist}
+    """查找黑名单命中规则：普通域名精确匹配，通配域名匹配直属一级子域。"""
+    blocked = list(dict.fromkeys(normalize_domain(item) for item in blacklist))
     for domain in domains:
         normalized = normalize_domain(domain)
         if normalized in blocked:
             return normalized
+        for rule in blocked:
+            if match_domain({rule}, normalized) is not None:
+                return rule
     return None
 
 
