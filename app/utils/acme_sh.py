@@ -1,4 +1,3 @@
-import json
 import os
 import re
 import subprocess
@@ -27,6 +26,7 @@ from app.utils.logger import get_logger
 from app.utils.project_root import resolve_project_path
 from app.utils.cert_parser import parse_cert_info_from_pem
 from app.utils.domain_match import build_cert_domains, match_domain, normalize_domain
+from app.utils.certificate_policy import get_dns_provider
 
 
 LOGGER = get_logger("acme")
@@ -151,17 +151,46 @@ class AcmeShRenewer(BaseAcmeRenewer):
 
         # 主域名只从原始目标解析一次，编排传入的结果直接用于命令和凭证选择。
         main_domain = main_domain or self.resolve_main_domain(domain)
-        resolved_provider_name = self._resolve_provider_name(main_domain, provider_name)
+        resolved_provider_name = self._resolve_provider_name(
+            main_domain, get_dns_provider(self._config, domain) or provider_name
+        )
         LOGGER.info(
             "renew provider resolved: domain=%s provider=%s",
             domain,
             resolved_provider_name,
         )
         env = self._build_provider_env(resolved_provider_name)
-        renew_cmd = self._build_renew_cmd(main_domain, force=force)
+        dns_plugin = self._resolve_dns_plugin(resolved_provider_name)
+        info_cmd = [self._acme_sh, "--info", "-d", main_domain]
+        LOGGER.info("续签前查询验证方式: domain=%s provider=%s plugin=%s", main_domain, resolved_provider_name, dns_plugin)
+        previous_info = self._parse_info_output(self._run_cmd(info_cmd, env=env))
+        previous_plugin = previous_info.get("Le_Webroot", "").strip()
+        if not previous_plugin:
+            raise AcmeShInfoParseError("续签前 acme.sh --info 缺少 Le_Webroot，无法确定原验证方式")
+        migrating = not all(item.strip() == dns_plugin for item in previous_plugin.split(","))
+        if not migrating:
+            renew_cmd = self._build_renew_cmd(main_domain, force=force)
+        else:
+            renew_cmd = self._build_dns_migration_cmd(main_domain, previous_info, dns_plugin)
+            issue_domains = [main_domain] + [item for item in previous_info["Le_Alt"].split(",") if item and item != "no"]
+            self._validate_issue_domain_providers(issue_domains, resolved_provider_name)
+            LOGGER.warning(
+                "DNS 验证插件变化，强制重新签发: domain=%s provider=%s old=%s new=%s",
+                main_domain, resolved_provider_name, previous_plugin, dns_plugin,
+            )
 
         LOGGER.info("执行 acme.sh 续签命令: %s", " ".join(renew_cmd))
         self._run_cmd(renew_cmd, env=env)
+        if migrating:
+            install_cmd = [self._acme_sh, "--install-cert", "-d", main_domain]
+            for field, flag in (("Le_RealKeyPath", "--key-file"), ("Le_RealFullChainPath", "--fullchain-file")):
+                if previous_info.get(field, "").strip():
+                    install_cmd.extend([flag, previous_info[field]])
+            if len(install_cmd) > 4:
+                LOGGER.info("DNS 插件迁移后安装新证书: domain=%s command=%s", main_domain, " ".join(install_cmd))
+                self._run_cmd(install_cmd, env=env)
+            else:
+                LOGGER.info("未配置证书安装路径，使用 acme.sh 内部证书: domain=%s", main_domain)
 
         # 通过 --info 获取 acme.sh 管理的证书实际路径
         info_cmd = [self._acme_sh, "--info", "-d", main_domain]
@@ -361,6 +390,18 @@ class AcmeShRenewer(BaseAcmeRenewer):
             issue_cmd.extend(["--dnssleep", str(dns_sleep_seconds)])
         return issue_cmd
 
+    def _build_dns_migration_cmd(self, main_domain: str, info: Dict[str, str], dns_plugin: str) -> list[str]:
+        """插件迁移使用原域名强制签发，其余设置交由 acme.sh 管理。"""
+        if not info.get("Le_Domain", "").strip() or normalize_domain(info["Le_Domain"]) != normalize_domain(main_domain):
+            raise AcmeShInfoParseError("原证书 Le_Domain 与本轮续签主域名不一致")
+        if "Le_Alt" not in info:
+            raise AcmeShInfoParseError("原证书缺少 Le_Alt，无法安全迁移 DNS 插件")
+        sans = [item.strip() for item in info["Le_Alt"].split(",") if item.strip() and item.strip() != "no"]
+        domains = self._normalize_issue_domains(main_domain, sans)
+        cmd = self._build_issue_cmd(domains, dns_plugin)
+        cmd.append("--force")
+        return cmd
+
     @staticmethod
     def _normalize_issue_domains(domain: str, sans: list[str]) -> list[str]:
         """保持主域名在首位，对 SAN 做归一化和稳定去重。"""
@@ -386,7 +427,7 @@ class AcmeShRenewer(BaseAcmeRenewer):
         """确保所有签发域名均由同一个 Provider 托管。"""
         for item in domains:
             lookup_domain = item[2:] if item.startswith("*.") else item
-            resolved = self._store.resolve(lookup_domain)
+            resolved = get_dns_provider(self._config, item) or self._store.resolve(lookup_domain)
             if not resolved:
                 raise AcmeShConfigError(
                     f"domain_provider_map 未找到签发域名 {item} 对应的云平台，请先完成域名扫描"
@@ -726,9 +767,13 @@ class AcmeShRenewer(BaseAcmeRenewer):
         解析续签所需 provider 名称。
 
         优先级：
-        1) 调用方显式传入 `provider_name`
-        2) 从 domain_provider_map 通过域名匹配解析
+        1) 证书策略显式引用的 DNS Provider
+        2) 调用方显式传入 `provider_name`
+        3) 从 domain_provider_map 通过域名匹配解析
         """
+        policy_provider = get_dns_provider(self._config, domain)
+        if policy_provider:
+            return policy_provider
         if provider_name:
             return provider_name
 
@@ -769,13 +814,7 @@ class AcmeShRenewer(BaseAcmeRenewer):
         return raw_path
 
     def _build_provider_env(self, provider_name: str) -> Dict[str, str]:
-        """
-        构建 acme.sh 执行环境变量。
-
-        规则：
-        - 优先使用 provider.metadata.acme_sh_env 自定义映射；
-        - 否则按内置云厂商类型映射标准环境变量。
-        """
+        """按云平台类型构建 acme.sh 执行环境变量。"""
         provider = self._find_provider(provider_name)
         if not provider:
             LOGGER.error("provider not found: %s", provider_name)
@@ -787,25 +826,6 @@ class AcmeShRenewer(BaseAcmeRenewer):
 
         credentials = provider.credentials
         env = os.environ.copy()
-        metadata = provider.get("metadata", {})
-
-        # 自定义映射：{"Ali_Key":"access_key_id", ...}
-        custom_env_map = metadata.get("acme_sh_env")
-        if custom_env_map:
-            env_map = self._parse_env_map(provider_name, custom_env_map)
-            for env_key, cred_key in env_map.items():
-                value = credentials.get(cred_key)
-                if not value:
-                    LOGGER.error(
-                        "provider credential missing: provider=%s key=%s",
-                        provider_name,
-                        cred_key,
-                    )
-                    raise AcmeShConfigError(
-                        f"云平台 {provider_name} 缺少凭证字段: {cred_key}"
-                    )
-                env[str(env_key)] = str(value)
-            return env
 
         provider_type = str(provider.type).strip().lower()
         # 内置映射：兼容常见 DNS API 凭证字段
@@ -852,23 +872,6 @@ class AcmeShRenewer(BaseAcmeRenewer):
             if str(provider.name) == provider_name:
                 return provider
         return None
-
-    @staticmethod
-    def _parse_env_map(provider_name: str, env_map_raw: Any) -> Dict[str, str]:
-        """解析 acme_sh_env（支持 dict 或 JSON 字符串）。"""
-        if isinstance(env_map_raw, dict):
-            return {str(k): str(v) for k, v in env_map_raw.items()}
-        try:
-            parsed = json.loads(str(env_map_raw))
-        except json.JSONDecodeError as exc:
-            raise AcmeShConfigError(
-                f"云平台 {provider_name} 的 acme_sh_env 不是有效 JSON"
-            ) from exc
-        if not isinstance(parsed, dict):
-            raise AcmeShConfigError(
-                f"云平台 {provider_name} 的 acme_sh_env 必须是对象映射"
-            )
-        return {str(k): str(v) for k, v in parsed.items()}
 
     @staticmethod
     def _require_credential(credentials: Dict[str, Any], provider_name: str, key: str) -> None:
@@ -987,7 +990,9 @@ class AcmeShRenewer(BaseAcmeRenewer):
                 continue
             key, value = line.split("=", 1)
             key = key.strip()
-            value = value.strip().strip("'").strip('"')
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                value = value[1:-1]
             if key:
                 data[key] = value
         return data

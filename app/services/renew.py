@@ -4,7 +4,10 @@ import asyncio
 from typing import Iterable, Optional
 
 from app.schemas.acme import RenewedCert
+from app.config import load_raw_config
 from app.utils.acme_sh import AcmeShRenewer
+from app.utils.certificate_policy import get_certificate_policy
+from app.utils.manual_certificate import load_manual_certificate
 from app.utils.domain_match import normalize_domain
 
 async def resolve_renew_domain(raw_domain: str) -> str:
@@ -72,6 +75,9 @@ async def load_existing_certificate(
     if not domain:
         raise ValueError("domain 不能为空")
 
+    policy = get_certificate_policy(load_raw_config(), domain)
+    if policy.source == "manual":
+        return await asyncio.to_thread(load_manual_certificate, domain, policy)
     renewer = AcmeShRenewer()
     return await asyncio.to_thread(
         renewer.load_existing, domain, provider_name, main_domain=main_domain

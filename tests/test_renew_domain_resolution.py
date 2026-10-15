@@ -80,7 +80,7 @@ def flow_env(monkeypatch):
             # 列表变化后重试仍必须使用本轮已经选中的子域证书。
             flow_env_state.entries = [PARENT]
             raise AcmeShExecutionError("临时 DNS 失败")
-        return "Le_Domain='xx.hj.com'"
+        return "Le_Domain='xx.hj.com'\nLe_Webroot='dns_cf'"
 
     flow_env_state = env
 
@@ -96,6 +96,7 @@ def flow_env(monkeypatch):
         return cert
 
     monkeypatch.setattr(client, "_resolve_provider_name", resolve_provider)
+    monkeypatch.setattr(client, "_resolve_dns_plugin", lambda provider: "dns_cf")
     monkeypatch.setattr(client, "_build_provider_env", lambda provider: {})
     monkeypatch.setattr(client, "_run_cmd", run_cmd)
     monkeypatch.setattr(client, "_build_renewed_cert_from_info", build_certificate)
@@ -141,6 +142,7 @@ def test_renew_flow_uses_child_main_domain_once(flow_env, force):
     assert result["renew_status"] == "success"
     assert flow_env.commands == [
         ["acme.sh", "--list"],
+        ["acme.sh", "--info", "-d", "xx.hj.com"],
         ["acme.sh", "--renew", "-d", "xx.hj.com"] + (["--force"] if force else []),
         ["acme.sh", "--info", "-d", "xx.hj.com"],
     ]
@@ -154,7 +156,7 @@ def test_renew_flow_uses_child_main_domain_once(flow_env, force):
 def test_direct_renew_keeps_original_target(flow_env):
     cert = asyncio.run(renew.renew_certificate("api.xx.hj.com"))
     assert cert.domain == "xx.hj.com"
-    assert flow_env.commands[1] == ["acme.sh", "--renew", "-d", "xx.hj.com"]
+    assert flow_env.commands[2] == ["acme.sh", "--renew", "-d", "xx.hj.com"]
     assert len([cmd for cmd in flow_env.commands if "--list" in cmd]) == 1
 
 

@@ -56,3 +56,9 @@ UI 或 API 提交 YAML 文本后的解析、校验、落盘与调度重启，由
 - `email` 为可选 SMTP 通知配置；完整字段与安全建议见 [notifications.md](notifications.md)。
 - 推荐设置 `password_env` 并在进程环境变量中保存 SMTP 密码；若同时存在 `password_env` 和 `password`，环境变量优先。
 - 未配置 `email` 或设置 `email.enabled=false` 时，不改变钉钉和 Rocket.Chat 的现有行为。
+
+## 8. 域名证书策略
+
+- 顶层 `certificate_policies` 统一配置域名的 `source`、`auto_renew`、`dns_provider` 及手动证书路径。
+- `source: manual` 直接读取文件进行仅部署；`auto_renew: false` 仅关闭 ACME 自动续签，手动操作继续允许。
+- 配置示例、域名匹配边界及共享证书说明见 [certificate-policies.md](certificate-policies.md)。

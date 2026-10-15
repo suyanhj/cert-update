@@ -147,13 +147,49 @@ class EmailConfig(BaseModel):
         return self
 
 
+class CertificatePolicyConfig(BaseModel):
+    """域名证书来源及自动续签策略，与域名发现方式独立。"""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    source: Literal["acme", "manual"] = "acme"
+    auto_renew: bool = True
+    dns_provider: Optional[str] = None
+    fullchain_path: Optional[str] = None
+    key_path: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_source_fields(self):
+        if self.source == "manual":
+            if not self.fullchain_path or not self.key_path:
+                raise ValueError("manual 证书必须配置 fullchain_path 和 key_path")
+            if self.dns_provider:
+                raise ValueError("manual 证书不能配置 dns_provider")
+            if "auto_renew" in self.model_fields_set and self.auto_renew:
+                raise ValueError("manual 证书不能开启 auto_renew")
+            self.auto_renew = False
+        elif self.fullchain_path or self.key_path:
+            raise ValueError("acme 证书不能配置手动证书路径")
+        if self.dns_provider == "":
+            raise ValueError("dns_provider 不能为空字符串")
+        return self
+
+
 class StaticDomainConfig(BaseModel):
     """静态域名配置，用于没有 SDK 发现能力时的手工录入。"""
 
     domain: str
     expires_at: Union[str, bool] = "unknown"
-    registrant_org: Optional[str] = None
+    registrant_org: Optional[str] = "unknown"
     sub_domains: Union[List[str], Dict[str, Any]] = Field(default_factory=list)
+
+    @field_validator("expires_at", "registrant_org", mode="before")
+    @classmethod
+    def normalize_unknown_fields(cls, value):
+        """手工录入信息为空时统一使用 unknown，避免解析空日期。"""
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return "unknown"
+        return value
 
 
 class SubExtension(BaseModel):
@@ -403,6 +439,47 @@ class AppConfig(BaseSettings):
     rocketchat: Optional[RocketChatConfig] = None
     email: Optional[EmailConfig] = None
     providers: List[ProviderConfig] = Field(default_factory=list)
+    certificate_policies: Dict[str, CertificatePolicyConfig] = Field(
+        default_factory=dict,
+        description="按域名配置证书来源和自动续签，精确优先于单级通配",
+    )
+
+    @field_validator("certificate_policies", mode="before")
+    @classmethod
+    def normalize_certificate_policies(cls, value):
+        if not isinstance(value, dict):
+            raise ValueError("certificate_policies 必须是对象")
+        result = {}
+        for raw_domain, policy in value.items():
+            if not isinstance(raw_domain, str):
+                raise ValueError("证书策略域名必须是字符串")
+            domain = normalize_blacklist([raw_domain])[0]
+            if domain in result:
+                raise ValueError(f"证书策略域名重复: {domain}")
+            result[domain] = policy
+        return result
+
+    @model_validator(mode="after")
+    def validate_certificate_dns_providers(self):
+        for domain, policy in self.certificate_policies.items():
+            if not policy.dns_provider:
+                continue
+            providers = [p for p in self.providers if p.name == policy.dns_provider]
+            if len(providers) != 1 or not providers[0].enabled:
+                raise ValueError(f"证书策略 {domain} 的 DNS Provider 不存在、不唯一或已禁用: {policy.dns_provider}")
+            provider = providers[0]
+            required = {
+                "aliyun": ("access_key_id", "access_key_secret"),
+                "tencent": ("secret_id", "secret_key"),
+                "cloudflare": ("api_token",),
+            }.get(provider.type)
+            if required is None:
+                raise ValueError(f"证书策略 {domain} 的 DNS Provider 类型不支持签发: {provider.type}")
+            for key in required:
+                if not provider.credentials.get(key, "").strip():
+                    raise ValueError(f"DNS Provider {provider.name} 缺少凭据字段: {key}")
+        return self
+
     ssh_profiles: List[NginxSSHProfileConfig] = Field(
         default_factory=list,
         description="全局 SSH Profile 列表（供各类主机复用）",

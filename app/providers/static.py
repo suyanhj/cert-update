@@ -1,15 +1,25 @@
 from typing import List
 from .base import Provider
 import asyncio
+from app.schemas.config import StaticDomainConfig
 
 class StaticCloudProvider(Provider):
     """使用配置中静态域名列表，适合测试和初始化环境。"""
 
     domain_roles = frozenset({"registration", "dns"})
 
+    def __init__(self, config) -> None:
+        """初始化时校验域名条目，采集只使用归一化后的配置。"""
+        super().__init__(config)
+        self._static_domains = [
+            StaticDomainConfig.model_validate(dict(item))
+            for item in self.config.static_domains or []
+        ]
+        self.logger.info("自定义域名配置已校验: provider=%s domains=%d", self.name, len(self._static_domains))
+
     async def is_domain_provider(self, domain: str) -> bool:
         """判断是否是当前提供器负责处理。"""
-        for item in self.config.static_domains or []:
+        for item in self._static_domains:
             if domain == item.domain:
                 return True
         return False
@@ -17,7 +27,7 @@ class StaticCloudProvider(Provider):
 
     def _full_domain(self):
         static_domain_names = []
-        for item in self.config.static_domains:
+        for item in self._static_domains:
             for name in item.sub_domains:
                 if name == '@':
                     static_domain_names.append(item.domain)
@@ -29,7 +39,7 @@ class StaticCloudProvider(Provider):
     async def get_domain_list(self) -> List[dict]:
         """获取账号下的所有域名列表。"""
         domains: List[dict] = []
-        static_domains = self.config.static_domains
+        static_domains = self._static_domains
         static_domain_names: List[str] = []
 
         self.logger.info("%s 静态发现 %d 个域名", self.name, len(static_domains))

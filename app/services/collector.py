@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.config import load_raw_config
 from app import state
 from app.utils import logger, store, time
+from app.utils.certificate_policy import certificate_operation_skip, get_dns_provider
 
 from .certs import Certificates
 from .domains import Domains
@@ -165,7 +166,12 @@ async def _auto_renew_and_deploy_expiring_certificates(certs: list[dict]) -> Non
             continue
         seen_domains.add(domain_key)
 
-        provider_name = str(cert.get("provider", "")).strip()
+        skipped = certificate_operation_skip(conf, domain, automatic=True)
+        if skipped is not None:
+            logger.info("跳过自动续签: domain=%s reason=%s", domain, skipped[0])
+            continue
+
+        provider_name = get_dns_provider(conf, domain) or str(cert.get("provider", "") or "").strip()
         if not provider_name:
             logger.warning("跳过自动续签: 域名 %s 未解析到 provider", domain)
             continue

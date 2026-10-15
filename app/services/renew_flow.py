@@ -8,6 +8,7 @@ from app.config import load_raw_config
 from app.utils.logger import get_logger
 from app.utils.time import TimeUtil
 from app.utils.domain_match import find_blacklisted_domain
+from app.utils.certificate_policy import certificate_operation_skip, get_certificate_policy
 from app.utils import notifier, store
 from app.services.deploy import DeployService, DeploymentError
 
@@ -171,6 +172,29 @@ def _blacklist_skip(config, domains: list[str], status_key: str) -> dict[str, An
     }
 
 
+def _certificate_policy_skip(config, domains: list[str], status_key: str, *, automatic: bool = False) -> dict[str, Any] | None:
+    """签发与续签入口统一应用证书策略，手动部署保留独立入口。"""
+    for domain in domains:
+        skipped = certificate_operation_skip(config, domain, automatic=automatic)
+        if skipped is None:
+            continue
+        reason, message = skipped
+        LOGGER.info("证书策略跳过: domain=%s automatic=%s reason=%s", domain, automatic, reason)
+        return {
+            "mode": config.deploy.mode.strip().lower(), status_key: "skipped",
+            "reason": reason, "matched_domain": domain, "message": message, "retry_count": 0,
+        }
+    return None
+
+
+def _deployment_provider(config, provider_name: str | None) -> str | None:
+    """静态域名账号只负责录入，不能作为云产品部署账号过滤条件。"""
+    for provider in config.get("providers", []):
+        if provider.name == provider_name and provider.type == "custom":
+            return None
+    return provider_name
+
+
 async def issue_and_plan_deploy(
     domain: str,
     domains: list[str],
@@ -185,6 +209,10 @@ async def issue_and_plan_deploy(
     domain_key = str(domain).strip()
     issue_domains = prepare_issue_domains(domain_key, domains)
     skipped = _blacklist_skip(config, issue_domains, "issue_status")
+    if skipped is not None:
+        skipped["domains"] = issue_domains
+        return skipped
+    skipped = _certificate_policy_skip(config, issue_domains, "issue_status")
     if skipped is not None:
         skipped["domains"] = issue_domains
         return skipped
@@ -231,12 +259,12 @@ async def issue_and_plan_deploy(
         if deploy_mode == "apply":
             result = await deploy_service.apply_deploy(
                 renewed_cert=issued_cert,
-                provider_name=provider_name,
+                provider_name=_deployment_provider(config, provider_name),
             )
         else:
             result = await deploy_service.plan_dry_run(
                 renewed_cert=issued_cert,
-                provider_name=provider_name,
+                provider_name=_deployment_provider(config, provider_name),
             )
     except Exception as exc:
         error = str(exc)
@@ -298,6 +326,9 @@ async def renew_and_plan_deploy(
     skipped = _blacklist_skip(config, [domain_key], "renew_status")
     if skipped is not None:
         return skipped
+    skipped = _certificate_policy_skip(config, [domain_key], "renew_status", automatic=automatic)
+    if skipped is not None:
+        return skipped
     try:
         effective_domain = await resolve_renew_domain(domain_key)
     except Exception as exc:
@@ -324,6 +355,9 @@ async def renew_and_plan_deploy(
             "error": error,
         }
     skipped = _blacklist_skip(config, [effective_domain], "renew_status")
+    if skipped is not None:
+        return skipped
+    skipped = _certificate_policy_skip(config, [effective_domain], "renew_status", automatic=automatic)
     if skipped is not None:
         return skipped
     state_key = effective_domain.lower().rstrip(".")
@@ -473,12 +507,12 @@ async def renew_and_plan_deploy(
         if deploy_mode == "apply":
             result = await deploy_service.apply_deploy(
                 renewed_cert=renewed_cert,
-                provider_name=provider_name,
+                provider_name=_deployment_provider(config, provider_name),
             )
         else:
             result = await deploy_service.plan_dry_run(
                 renewed_cert=renewed_cert,
-                provider_name=provider_name,
+                provider_name=_deployment_provider(config, provider_name),
             )
     except Exception as exc:
         # 部署阶段失败：续签本身已成功，但整体流程失败。
@@ -556,7 +590,9 @@ async def deploy_existing_only(
     effective_domain = domain_key
     dd = None
     try:
-        effective_domain = await resolve_renew_domain(domain_key)
+        policy = get_certificate_policy(config, domain_key)
+        if policy.source == "acme":
+            effective_domain = await resolve_renew_domain(domain_key)
         skipped = _blacklist_skip(config, [effective_domain], "renew_status")
         if skipped is not None:
             return skipped
@@ -572,12 +608,12 @@ async def deploy_existing_only(
         if deploy_mode == "apply":
             result = await deploy_service.apply_deploy(
                 renewed_cert=renewed_cert,
-                provider_name=provider_name,
+                provider_name=_deployment_provider(config, provider_name),
             )
         else:
             result = await deploy_service.plan_dry_run(
                 renewed_cert=renewed_cert,
-                provider_name=provider_name,
+                provider_name=_deployment_provider(config, provider_name),
             )
     except Exception as exc:
         error_msg = f"证书部署失败: {exc}"

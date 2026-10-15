@@ -242,6 +242,7 @@ def test_resolve_issue_dns_plugin_rejects_unsupported_huawei_ak_config():
 
 def test_validate_issue_domains_rejects_cross_provider():
     renewer = AcmeShRenewer.__new__(AcmeShRenewer)
+    renewer._config = Box({})
     renewer._store = Box(
         {
             "resolve": lambda domain: "cf-main" if domain == "example.com" else "ali-other",
@@ -267,6 +268,7 @@ def test_validate_issue_domains_inherits_dns_provider_from_managed_root(tmp_path
     ])
     renewer = AcmeShRenewer.__new__(AcmeShRenewer)
     renewer._store = provider_store
+    renewer._config = Box({})
 
     renewer._validate_issue_domain_providers(
         ["test.gzyys26.com", "*.test.gzyys26.com"],
@@ -282,6 +284,7 @@ def test_validate_issue_domains_rejects_more_specific_other_provider(tmp_path):
     ])
     renewer = AcmeShRenewer.__new__(AcmeShRenewer)
     renewer._store = provider_store
+    renewer._config = Box({})
 
     with pytest.raises(AcmeShConfigError, match="必须属于同一云平台"):
         renewer._validate_issue_domain_providers(
@@ -292,6 +295,7 @@ def test_validate_issue_domains_rejects_more_specific_other_provider(tmp_path):
 
 def test_validate_issue_domains_rejects_missing_provider_mapping(tmp_path):
     renewer = AcmeShRenewer.__new__(AcmeShRenewer)
+    renewer._config = Box({})
     renewer._store = DomainProviderStore(str(tmp_path / "domain-provider-map.json"))
 
     with pytest.raises(AcmeShConfigError, match="未找到签发域名"):

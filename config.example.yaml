@@ -39,6 +39,21 @@ acme:
 #   subject_prefix: "[CRT] "
 #   timeout_seconds: 10
 
+certificate_policies: {}        # 适用于所有域名，与 providers 的发现类型无关
+# certificate_policies:
+#   example.com:                # 精确匹配；共享 ACME 证书应给其 Main_Domain 配置开关
+#     source: acme              # 默认 acme
+#     auto_renew: false          # 只关闭自动续签，仍可手动签发、续签、仅部署
+#     dns_provider: aliyun-demo  # 可选，引用已有启用的 DNS 账号；custom 域名签发时指定
+#   manual.example.net:
+#     source: manual            # 自动续签默认关闭；不调用 acme.sh
+#     fullchain_path: /etc/nginx/certs/manual.example.net.pem
+#     key_path: /etc/nginx/certs/manual.example.net.key
+#   '*.manual.example.net':     # 可选：仅匹配直属一级子域，不匹配根域及多级子域
+#     source: manual
+#     fullchain_path: /etc/nginx/certs/manual.example.net.pem
+#     key_path: /etc/nginx/certs/manual.example.net.key
+
 providers: []
 # 云账号配置示例（在本地 config.yaml 中按需添加）：
 #  - name: aliyun-demo           # 账号名称，用于标识和展示
@@ -93,6 +108,7 @@ providers: []
 #    enabled: true
 #    static_domains:
 #      - domain: example.com
+#        # expires_at、registrant_org 留空、null 或省略时自动识别为 unknown
 #        sub_domains:            # 子域名列表，@ 表示根域
 #          - '@'
 #          - www

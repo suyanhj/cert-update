@@ -17,6 +17,7 @@ from app.services.renew_flow import (
 from app.services.config_runtime import apply_config_text
 from app.services.renew import prepare_issue_domains
 from app.utils.domain_match import normalize_domain
+from app.utils.certificate_policy import get_certificate_policy
 from app.utils.time import TimeUtil
 from app.utils.wrap import prevent_double_click
 
@@ -24,7 +25,8 @@ from app.utils.wrap import prevent_double_click
 _HOME_USAGE_TOOLTIP = (
     "托管域名列表：点「签发」编辑主域名、通配域名及其他 SAN。\n"
     "证书池已有证书：点「强制续签」按钮重新签发。\n"
-    "已签发或续签但部署失败：点「部署」按钮重新部署。"
+    "已签发或续签但部署失败：点「仅部署」按钮重新部署。\n"
+    "手动证书：同步文件后点「仅部署」；关闭自动续签仍可手动操作。"
 )
 
 
@@ -102,12 +104,36 @@ def _format_time_shanghai(raw, fallback: str = "N/A") -> str:
 def _format_last_updated_shanghai(raw) -> str:
     return _format_time_shanghai(raw, fallback="N/A")
 
+
+def _certificate_rows(config, certificates: list[dict]) -> list[dict]:
+    """为探测结果附加当前策略，并为未探测的手动证书保留部署入口。"""
+    rows = [dict(row) for row in certificates]
+    seen = {normalize_domain(row["domain"]) for row in rows}
+    for domain in config.get("certificate_policies", {}):
+        if domain not in seen and get_certificate_policy(config, domain).source == "manual":
+            rows.append({
+                "domain": domain, "key": "—", "sans": [], "ca": "—",
+                "exp": "未探测", "days": "未探测", "provider": "手动配置",
+            })
+    for row in rows:
+        policy = get_certificate_policy(config, row["domain"])
+        row["certificate_source"] = policy.source
+        row["certificate_policy_label"] = (
+            "手动证书 · 仅部署" if policy.source == "manual" else
+            "ACME · 自动续签已关闭" if not policy.auto_renew else
+            "ACME · 自动续签已开启" if config.get("auto_renew_enabled", True) else
+            "ACME · 全局自动续签已关闭"
+        )
+    return rows
+
+
 # ===============================
 # 证书大盘 - 现代极简表格
 # ===============================
 def render_certificates():
     config = get_config()
     ui.label('证书池 (Certificates)').classes('text-2xl font-medium text-gray-800 dark:text-gray-100 tracking-tight')
+    ui.label('证书信息来自线上探测；手动证书在仅部署时读取并校验当前文件。').classes('text-sm text-gray-500')
 
     async def _manual_deploy_handler(args: str) -> None:
         domain = args.strip()
@@ -117,7 +143,9 @@ def render_certificates():
         client = ui.context.client
         deploy_mode = get_config().deploy.mode.strip().lower()
         cfg = get_config()
-        if cfg.staging.enabled and getattr(cfg.staging, "use_self_signed", True):
+        if get_certificate_policy(cfg, domain).source == "manual":
+            source_label = "手动证书文件"
+        elif cfg.staging.enabled and getattr(cfg.staging, "use_self_signed", True):
             source_label = "本地调试(certs)"
         else:
             source_label = "线上(acme.sh)"
@@ -264,10 +292,11 @@ def render_certificates():
         {'name': 'exp', 'label': '过期时间', 'field': 'exp', 'align': 'left', 'sortable': False},
         {'name': 'days', 'label': '剩余天数', 'field': 'days', 'align': 'left', 'sortable': True},
         {'name': 'provider', 'label': '所属', 'field': 'provider', 'align': 'left', 'sortable': True},
+        {'name': 'certificate_policy_label', 'label': '证书来源 / 续签策略', 'field': 'certificate_policy_label', 'align': 'left'},
         {'name': 'action', 'label': '操作', 'align': 'left'},
     ]
 
-    with ui.table(columns=columns, rows=state.CERT_LIST, row_key='domain').classes(
+    with ui.table(columns=columns, rows=_certificate_rows(config, state.CERT_LIST), row_key='domain').classes(
         'w-full mt-3 shadow-none border border-gray-200 dark:border-gray-800 rounded-lg text-base'
     ).props('flat bordered dense binary-state-sort') as table:
         async def _on_manual_renew_force(e) -> None:
@@ -303,8 +332,8 @@ def render_certificates():
         cert_e = config.alert.cert.cert_expiry_days
         table.add_slot('body-cell-days', f'''
             <q-td :props="props" class="text-left">
-                <q-chip dense :color="props.row.days <= {cert_w} ? 'red-1' : props.row.days <= {cert_e} ? 'orange-1' : 'green-1'" 
-                        :text-color="props.row.days <= {cert_w} ? 'red-7' : props.row.days <= {cert_e} ? 'orange-8' : 'green-8'"
+                <q-chip dense :color="props.row.days === '未探测' ? 'grey-2' : props.row.days <= {cert_w} ? 'red-1' : props.row.days <= {cert_e} ? 'orange-1' : 'green-1'"
+                        :text-color="props.row.days === '未探测' ? 'grey-7' : props.row.days <= {cert_w} ? 'red-7' : props.row.days <= {cert_e} ? 'orange-8' : 'green-8'"
                         class="px-3 py-1 text-sm font-medium tracking-wide">
                     {{{{ props.row.days }}}}
                 </q-chip>
@@ -316,6 +345,7 @@ def render_certificates():
             <q-td :props="props" class="text-left">
                 <div class="flex items-center gap-3">
                     <q-btn
+                        v-if="props.row.certificate_source !== 'manual'"
                         flat
                         size="md"
                         label="强制续签"
@@ -327,7 +357,7 @@ def render_certificates():
                     <q-btn
                         flat
                         size="md"
-                        label="部署"
+                        label="仅部署"
                         color="secondary"
                         @click="$parent.$emit('manual-deploy', props.row.domain)"
                     >
@@ -468,9 +498,12 @@ def render_domains():
                                     root, provider, root
                                 ),
                             ).props('flat dense color=primary').tooltip('编辑域名并首次签发')
-                            if not (group.get('dns_name') or group.get('name')):
+                            if not (get_certificate_policy(config, group['domain']).dns_provider or group.get('dns_name') or group.get('name')):
                                 issue_button.disable()
                                 issue_button.tooltip('未发现 DNS 托管 Provider，不能在线签发')
+                            if get_certificate_policy(config, group['domain']).source == 'manual':
+                                issue_button.set_visibility(False)
+                                ui.label('手动证书：请在证书池仅部署').classes('text-xs text-gray-500')
                         
                         ui.label(f"过期: {_format_time_shanghai(group.get('expires_at', 'unknown'), fallback='unknown')}").classes('text-base text-gray-600 dark:text-gray-400 truncate')
                         ui.label(group.get('registrant_org') or '注册主体未知').classes('text-base text-gray-600 dark:text-gray-400 truncate')
@@ -523,7 +556,7 @@ def render_domains():
                                 sub['name'],
                             )
                             with ui.row().classes('gap-2 justify-end flex-nowrap'):
-                                ui.button(
+                                sub_issue_button = ui.button(
                                     '签发',
                                     on_click=lambda root=group['domain'], provider=(group.get('dns_name') or group.get('name', '')), selected=sub['name']: _open_issue_dialog(
                                         root, provider, selected
@@ -531,6 +564,9 @@ def render_domains():
                                 ).props('flat dense color=primary').tooltip(
                                     f"默认签发 {default_issue_main} 与 *.{default_issue_main}"
                                 )
+                                if any(get_certificate_policy(config, name).source == 'manual' for name in (sub['name'], default_issue_main)):
+                                    sub_issue_button.set_visibility(False)
+                                    ui.label('手动证书 · 仅部署').classes('text-xs text-gray-500')
 
 
 # ===============================
