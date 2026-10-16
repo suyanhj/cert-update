@@ -47,18 +47,18 @@ def test_zerossl_catalog_is_complete_and_explicit():
         "ZeroSSL RSA DV SSL CA 2",
         "ZeroSSL ECC DV SSL CA 2",
     }
-    assert len(module.zerossl_ca_catalog_names if hasattr(module, "zerossl_ca_catalog_names") else {
-        name for name in module.CA_CATALOG if name in {
-            "ZeroSSL RSA DV SSL CA 2",
-            "ZeroSSL ECC DV SSL CA 2",
-            "ZeroSSL RSA Domain Secure Site CA",
-            "ZeroSSL ECC Domain Secure Site CA",
-            "USERTrust RSA Certification Authority",
-            "USERTrust ECC Certification Authority",
-            "Sectigo Public Server Authentication Root R46",
-            "Sectigo Public Server Authentication Root E46",
-        }
-    }) == 8
+    expected_catalog_names = {
+        "ZeroSSL RSA DV SSL CA 2",
+        "ZeroSSL ECC DV SSL CA 2",
+        "ZeroSSL RSA Domain Secure Site CA",
+        "ZeroSSL ECC Domain Secure Site CA",
+        "USERTrust RSA Certification Authority",
+        "USERTrust ECC Certification Authority",
+        "Sectigo Public Server Authentication Root R46",
+        "Sectigo Public Server Authentication Root E46",
+    }
+    assert expected_catalog_names <= module.CA_CATALOG.keys()
+    assert len(expected_catalog_names) == 8
     for name, entry in module.CA_CATALOG.items():
         if name.startswith(("ZeroSSL ", "USERTrust ", "Sectigo Public Server Authentication Root ")):
             assert entry["format"] == "der"
