@@ -2,6 +2,8 @@
 import asyncio
 from types import SimpleNamespace
 
+from box import Box
+
 import pytest
 
 from app.services import renew_flow
