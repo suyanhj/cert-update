@@ -52,10 +52,23 @@ python -m pytest tests/test_certificate_chain.py -q
 
 ## 部署前自动处理
 
-项目自动续签后部署、手动 CLI 续签后的“仅部署”、手动证书来源，均通过正式部署入口处理一次。只读 dry-run 不下载补链或写回。自动处理仅针对已识别的正式 Let's Encrypt 证书，其他 CA 保留原部署行为。
+项目自动续签后部署、手动 CLI 续签后的“仅部署”、手动证书来源，均通过正式部署入口处理一次。只读 dry-run 不下载补链或写回。自动处理针对已识别的正式 Let's Encrypt / ZeroSSL 证书，其他 CA 保留原部署行为。
 
 写回的是本轮路径选择实际得到的 `RenewedCert.fullchain_path`（手动来源即配置的 fullchain_path），跟随符号链接到实际文件；不会另猜默认目录，也不会修改独立叶证书、独立 CA 文件或私钥文件。
 
 链不完整时，验证成功后生成同目录 `原文件名.chain-随机标识.bak`，再原子替换原文件，保留换行、权限及所有者。链已完整时不下载、不备份、不写回。备份保留供人工恢复。
 
 同一轮各云平台及 Nginx 共享更新后的内存证书，避免写回后仍上传旧链；以后再次部署读取完整链，只做验证，不再次更新文件。手动续签覆盖文件后，下一轮部署会重新检测并补齐。补链、私钥校验或写回失败时终止上传；发现源文件与加载快照不符或验证期间被外部更新时，报错要求重新加载，不覆盖外部修改。
+
+
+## ZeroSSL 真实证书回归
+
+仓库包含一组 2026-09-04 签发的 ZeroSSL ECC DV SSL CA 2 证书样本，以及对应的用户现场三证书不完整链样本。后者包含叶证书、ZeroSSL ECC DV SSL CA 2 和 USERTrust ECC 自签根，实际缺失的是 `Sectigo Public Server Authentication Root E46` 交叉签名证书。
+
+运行：
+
+```sh
+python -m pytest -q tests/test_zerossl_chain.py
+```
+
+其中 `integration` 用例才会访问 Sectigo 官方 HTTPS CA 下载地址；默认 portable 测试不会访问公网。ZeroSSL 官方文档明确说明 ECC DV SSL CA 2 经 E46，并可通过 USERTrust ECC 根建立兼容链。
