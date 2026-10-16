@@ -276,16 +276,17 @@ def test_download_rejects_non_official_url(hierarchy):
 
 
 def test_download_rejects_non_ca_certificate(hierarchy):
-    certs, _, _ = hierarchy
+    _, _, leaf = hierarchy
+    non_ca = leaf("YE1")
     catalog = dict(module.CA_CATALOG)
     catalog["YE1"] = {
         **catalog["YE1"],
-        "sha256": module._fingerprint(certs["YE1"]),
+        "sha256": module._fingerprint(non_ca),
     }
     client = HTTP_CLIENT(
         transport=httpx.MockTransport(
             lambda request: httpx.Response(
-                200, content=module._pem(certs["YE1"]).encode("ascii")
+                200, content=module._pem(non_ca).encode("ascii")
             )
         )
     )
