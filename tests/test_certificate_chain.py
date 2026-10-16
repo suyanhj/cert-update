@@ -400,7 +400,8 @@ def test_input_ca_with_wrong_issuer_is_unused_and_official_path_wins(hierarchy):
         module._pem(leaf("R10")) + module._pem(fake)
     )
     assert result.unused_certificates == 1
-    assert len(calls) == 1
+    assert result.missing_ca == ("R10", module.ROOT)
+    assert len(calls) == 2
     assert result.root_pem == module._pem(certs[module.ROOT])
 
 
