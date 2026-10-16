@@ -68,7 +68,7 @@ def test_upload_certificate_validates_and_wraps_errors(monkeypatch):
 def test_upload_slb_server_certificate_uploads_and_renames(monkeypatch):
     d, _ = make_deployer(monkeypatch)
     captured = []
-    d._regional_clients["cn-beijing"]["slb_client"] = SimpleNamespace(
+    d._get_region_clients("cn-beijing")["slb_client"] = SimpleNamespace(
         upload_server_certificate=lambda req: (
             captured.append(("upload", req)) or SimpleNamespace(
                 body=SimpleNamespace(server_certificate_id="slb-cert")
@@ -102,8 +102,9 @@ def test_deploy_cdn_alb_oss_and_unsupported(monkeypatch):
 
     d._cdn_client.set_cdn_domain_sslcertificate = lambda req: cdn_calls.append(req)
     d._alb_client.update_listener_attribute = lambda req: alb_calls.append(req)
-    d._regional_clients["cn-beijing"]["alb_client"] = d._alb_client
-    d._regional_clients["cn-beijing"]["oss_client"] = SimpleNamespace(
+    beijing = d._get_region_clients("cn-beijing")
+    beijing["alb_client"] = d._alb_client
+    beijing["oss_client"] = SimpleNamespace(
         put_cname=lambda req: oss_calls.append(req)
     )
 
