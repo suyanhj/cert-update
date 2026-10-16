@@ -237,3 +237,69 @@ def test_no_dns_or_ip_san_rejected(hierarchy):
     cert = leaf("R10", sans=[x509.RFC822Name("test@example.com")])
     with pytest.raises(module.CertificateChainError, match="没有 DNS"):
         module.complete_certificate_chain(module._pem(cert))
+
+
+
+def test_is_ca_without_basic_constraints_returns_false():
+    key = ec.generate_private_key(ec.SECP256R1())
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "leaf")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(timezone.utc) - timedelta(days=1))
+        .not_valid_after(datetime.now(timezone.utc) + timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    assert module._is_ca(cert) is False
+
+
+def test_download_rejects_non_official_url(hierarchy):
+    certs, _, _ = hierarchy
+    catalog = dict(module.CA_CATALOG)
+    catalog["YE1"] = {
+        **catalog["YE1"],
+        "url": "https://example.com/not-an-official-ca.pem",
+        "sha256": module._fingerprint(certs["YE1"]),
+    }
+    client = HTTP_CLIENT(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+    original = module.CA_CATALOG
+    module.CA_CATALOG = catalog
+    try:
+        with pytest.raises(module.CertificateChainError, match="非官方地址"):
+            module._download_ca(client, "YE1", 1)
+    finally:
+        module.CA_CATALOG = original
+    client.close()
+
+
+def test_download_rejects_non_ca_certificate(hierarchy):
+    certs, _, _ = hierarchy
+    catalog = dict(module.CA_CATALOG)
+    catalog["YE1"] = {
+        **catalog["YE1"],
+        "sha256": module._fingerprint(certs["YE1"]),
+    }
+    client = HTTP_CLIENT(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200, content=module._pem(certs["YE1"]).encode("ascii")
+            )
+        )
+    )
+    original = module.CA_CATALOG
+    module.CA_CATALOG = catalog
+    try:
+        with pytest.raises(module.CertificateChainError, match="不是单个 CA"):
+            module._download_ca(client, "YE1", 1)
+    finally:
+        module.CA_CATALOG = original
+    client.close()
+
+
+def test_timeout_must_be_positive(hierarchy):
+    _, _, leaf = hierarchy
+    with pytest.raises(module.CertificateChainError, match="timeout 必须大于 0"):
+        module.complete_certificate_chain(module._pem(leaf("R10")), timeout=0)
