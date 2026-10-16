@@ -246,3 +246,99 @@ def test_static_provider_get_domain_list_unknown_expiry(monkeypatch):
     assert result[0]["days"] == 0
     assert result[0]["provider"] == "custom"
     assert result[0]["subs"][0]["status"] == "在工作"
+
+
+def test_collector_snapshot_hydration_and_persist(monkeypatch):
+    collector = _import_collector_with_fake_nicegui()
+    payload = {"domain_groups": [{"domain": "example.com"}], "cert_list": [{"domain": "a"}],
+               "ecs_list": [{"instance_id": "i1"}], "last_updated": "T"}
+    monkeypatch.setattr(collector.snapshot_store, "get_all", lambda: payload)
+    collector.state.DOMAIN_GROUPS = []
+    collector.state.CERT_LIST = []
+    collector.state.ECS_LIST = []
+    collector.state.LAST_UPDATED = ""
+    collector.state.DOMAIN_READY.clear()
+    assert collector.hydrate_state_from_snapshot() is True
+    assert collector.state.DOMAIN_GROUPS == payload["domain_groups"]
+    assert collector.state.DOMAIN_READY.is_set()
+    saved = {}
+    monkeypatch.setattr(collector.snapshot_store, "save", lambda **kw: saved.update(kw))
+    collector.persist_state_snapshot()
+    assert saved["last_updated"] == "T"
+
+    monkeypatch.setattr(collector.snapshot_store, "get_all", lambda: {})
+    assert collector.hydrate_state_from_snapshot() is False
+    monkeypatch.setattr(collector.snapshot_store, "get_all", lambda: (_ for _ in ()).throw(RuntimeError("bad")))
+    assert collector.hydrate_state_from_snapshot() is False
+    monkeypatch.setattr(collector.snapshot_store, "save", lambda **kw: (_ for _ in ()).throw(RuntimeError("bad")))
+    collector.persist_state_snapshot()
+
+
+def test_collector_ecs_and_binding_refresh_paths(monkeypatch):
+    collector = _import_collector_with_fake_nicegui()
+    class FakeEcs:
+        async def discovery_all(self): return [{"instance_id": "i1"}]
+    monkeypatch.setattr(collector, "Ecs", FakeEcs)
+    asyncio.run(collector.collect_ecs_instances())
+    assert collector.state.ECS_LIST == [{"instance_id": "i1"}]
+
+    class FakeBindings:
+        async def refresh_binding_cache(self):
+            return {"refreshed_provider_count": 1, "total_bindings": 2, "cache_enabled": True, "failed_providers": []}
+    monkeypatch.setattr(collector, "BindingCacheService", FakeBindings)
+    asyncio.run(collector.refresh_product_bindings_cache())
+
+    class FailedBindings:
+        async def refresh_binding_cache(self):
+            return {"failed_providers": [{"provider": "p", "error": "down"}]}
+    monkeypatch.setattr(collector, "BindingCacheService", FailedBindings)
+    with pytest.raises(RuntimeError, match="p: down"):
+        asyncio.run(collector.refresh_product_bindings_cache())
+
+
+def test_collector_auto_renew_edge_statuses(monkeypatch):
+    collector = _import_collector_with_fake_nicegui()
+    monkeypatch.setattr(collector, "load_raw_config", lambda: Box({"auto_renew_enabled": True, "auto_renew_days": "bad"}, default_box=True))
+    asyncio.run(collector._auto_renew_and_deploy_expiring_certificates([{"domain": "a", "days": 1}]))
+    monkeypatch.setattr(collector, "load_raw_config", lambda: Box({"auto_renew_enabled": True, "auto_renew_days": 0}, default_box=True))
+    asyncio.run(collector._auto_renew_and_deploy_expiring_certificates([{"domain": "a", "days": 1}]))
+
+    calls = []
+    async def fake_renew_and_plan_deploy(**kwargs):
+        calls.append(kwargs)
+        return {"renew_status": "skipped", "reason": "cooldown"}
+    monkeypatch.setattr(collector, "load_raw_config", lambda: Box({"auto_renew_enabled": True, "auto_renew_days": 10}, default_box=True))
+    monkeypatch.setattr(collector, "certificate_operation_skip", lambda *a, **k: None)
+    monkeypatch.setattr(collector, "get_dns_provider", lambda *a, **k: "p")
+    monkeypatch.setattr(collector, "renew_and_plan_deploy", fake_renew_and_plan_deploy)
+    asyncio.run(collector._auto_renew_and_deploy_expiring_certificates([{"domain": "a", "days": 1}]))
+    assert calls
+
+    async def failed(**kwargs):
+        return {"renew_status": "failed", "error": "x"}
+    monkeypatch.setattr(collector, "renew_and_plan_deploy", failed)
+    asyncio.run(collector._auto_renew_and_deploy_expiring_certificates([{"domain": "b", "days": 1}]))
+
+    async def raises(**kwargs): raise RuntimeError("boom")
+    monkeypatch.setattr(collector, "renew_and_plan_deploy", raises)
+    asyncio.run(collector._auto_renew_and_deploy_expiring_certificates([{"domain": "c", "days": 1}]))
+
+
+def test_collect_all_collects_snapshot_only_on_full_success(monkeypatch):
+    collector = _import_collector_with_fake_nicegui()
+    async def ok(): pass
+    monkeypatch.setattr(collector, "collect_domains", ok)
+    monkeypatch.setattr(collector, "collect_ecs_instances_in_thread", ok)
+    monkeypatch.setattr(collector, "refresh_product_bindings_cache", ok)
+    monkeypatch.setattr(collector, "collect_certificates", ok)
+    monkeypatch.setattr(collector.timeutils, "now", lambda: "NOW")
+    saved = []
+    monkeypatch.setattr(collector, "persist_state_snapshot", lambda: saved.append(True))
+    collector.state.LAST_UPDATED = None
+    asyncio.run(collector.collect_all())
+    assert saved == [True] and collector.state.LAST_UPDATED == "NOW"
+
+    async def bad(): raise RuntimeError("bad")
+    monkeypatch.setattr(collector, "collect_ecs_instances_in_thread", bad)
+    with pytest.raises(RuntimeError, match="ecs_instances"):
+        asyncio.run(collector.collect_all())
