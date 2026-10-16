@@ -228,7 +228,7 @@ def test_get_dns_records_paginates_and_filters_probe_targets(monkeypatch):
             SimpleNamespace(rr="mail", remark="", status="ENABLE", type="MX"),
         ]
         if req.page_number == 1:
-            return SimpleNamespace(body=SimpleNamespace(total_count=501, domain_records=SimpleNamespace(record=records)))
+            return SimpleNamespace(body=SimpleNamespace(total_count=4, domain_records=SimpleNamespace(record=records)))
         return SimpleNamespace(body=SimpleNamespace(total_count=501, domain_records=SimpleNamespace(record=[records[0]])))
 
     p._dns_client = SimpleNamespace(describe_domain_records=describe)
