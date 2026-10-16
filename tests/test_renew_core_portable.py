@@ -43,7 +43,6 @@ def test_issue_certificate_delegates_to_thread(monkeypatch):
     assert called == {"domain": "example.com", "sans": ["www.example.com"], "provider": "dns"}
 
 
-@pytest.mark.asyncio
 def test_renew_certificate_delegates_main_domain_and_force(monkeypatch):
     called = {}
     class FakeRenewer:
