@@ -145,6 +145,7 @@ def test_huawei_ecs_bss_mapping_and_error_time(monkeypatch):
                 SimpleNamespace(resource_id="", expire_time="x"),
             ])
     p._bss_client = Bss()
+    monkeypatch.setattr(mod.bss_models, "ListPayPerUseCustomerResourcesRequest", lambda **kwargs: SimpleNamespace(**kwargs))
     p.time = SimpleNamespace(
         parse=lambda value: value if value != "bad-time" else (_ for _ in ()).throw(ValueError("bad")),
         to_local_tz=lambda value: "LOCAL",
