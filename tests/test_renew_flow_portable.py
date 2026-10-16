@@ -13,6 +13,10 @@ def run(coro):
     return asyncio.run(coro)
 
 
+async def resolve_example(_domain):
+    return "example.com"
+
+
 def config(*, mode="dry-run", blacklist=None, cooldown=7, retries=3, interval=0, providers=None):
     return Box({
         "blacklist": blacklist or [],
@@ -112,7 +116,9 @@ def test_resolve_failure_records_state_and_notifies(monkeypatch):
     state = FakeState()
     cfg = config()
     monkeypatch.setattr(renew_flow, "load_raw_config", lambda: cfg)
-    monkeypatch.setattr(renew_flow, "resolve_renew_domain", lambda domain: (_ for _ in ()).throw(RuntimeError("resolve failed")))
+    async def fail_resolve(_domain):
+        raise RuntimeError("resolve failed")
+    monkeypatch.setattr(renew_flow, "resolve_renew_domain", fail_resolve)
     monkeypatch.setattr(renew_flow.store, "RenewStateStore", lambda: state)
     monkeypatch.setattr(renew_flow.notifier, "DingDingNotifier", FakeNotifier)
     result = run(renew_flow.renew_and_plan_deploy("example.com"))
@@ -125,7 +131,7 @@ def test_resolve_failure_records_state_and_notifies(monkeypatch):
 def test_duplicate_certificate_is_skipped_after_resolution(monkeypatch):
     cfg = config()
     monkeypatch.setattr(renew_flow, "load_raw_config", lambda: cfg)
-    monkeypatch.setattr(renew_flow, "resolve_renew_domain", lambda domain: "example.com")
+    monkeypatch.setattr(renew_flow, "resolve_renew_domain", resolve_example)
     processed = {"example.com"}
     result = run(renew_flow.renew_and_plan_deploy("www.example.com", processed_certificates=processed))
     assert result["reason"] == "duplicate_certificate"
