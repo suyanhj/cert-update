@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import shutil
 import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -804,14 +805,21 @@ class AcmeShRenewer(BaseAcmeRenewer):
         raw_path = str(self._config.acme.acme_sh_path or "acme.sh")
         path = Path(raw_path).expanduser()
 
-        has_path_hint = any(token in raw_path for token in ("/", "\\", "~", "."))
-        if has_path_hint:
-            if not path.exists():
-                LOGGER.error("acme.sh path not found: %s", path)
-                raise AcmeShNotFoundError(f"acme.sh 路径不存在: {path}")
-            return str(path)
+        has_path_hint = any(token in raw_path for token in ("/", "\\", "~"))
+        if not has_path_hint:
+            command = shutil.which(raw_path)
+            if command:
+                return command
+            # PATH 中没有时，再允许它作为当前目录下的显式文件路径。
+            if path.exists():
+                return str(path)
+            LOGGER.error("acme.sh command not found: %s", raw_path)
+            raise AcmeShNotFoundError(f"acme.sh 命令不存在: {raw_path}")
 
-        return raw_path
+        if not path.exists():
+            LOGGER.error("acme.sh path not found: %s", path)
+            raise AcmeShNotFoundError(f"acme.sh 路径不存在: {path}")
+        return str(path)
 
     def _build_provider_env(self, provider_name: str) -> Dict[str, str]:
         """按云平台类型构建 acme.sh 执行环境变量。"""
