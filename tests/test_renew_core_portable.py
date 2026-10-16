@@ -56,7 +56,6 @@ def test_renew_certificate_delegates_main_domain_and_force(monkeypatch):
     assert called["kwargs"] == {"main_domain": "example.com"}
 
 
-@pytest.mark.asyncio
 def test_load_existing_manual_policy_uses_manual_loader(monkeypatch):
     class FakePolicy:
         source = "manual"
@@ -66,7 +65,6 @@ def test_load_existing_manual_policy_uses_manual_loader(monkeypatch):
     assert asyncio.run(renew.load_existing_certificate("example.com")) == "manual:example.com"
 
 
-@pytest.mark.asyncio
 def test_resolve_renew_domain_uses_renewer(monkeypatch):
     class FakeRenewer:
         def resolve_main_domain(self, domain):
