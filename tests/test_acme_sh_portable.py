@@ -91,6 +91,14 @@ def test_parse_acme_list(output, expected):
     assert AcmeShRenewer._parse_acme_list(output) == expected
 
 
+def test_parse_real_acme_sh_list_output_with_profile_and_quoted_key_length():
+    output = """Main_Domain       KeyLength  SAN_Domains         Profile  CA               Created               Renew
+ gzyys26.com       "ec-256"   *.gzyys26.com                LetsEncrypt.org  2026-10-15T05:55:05Z  2026-11-13T05:55:05Z"""
+    assert AcmeShRenewer._parse_acme_list(output) == [
+        ("gzyys26.com", {"gzyys26.com", "*.gzyys26.com"})
+    ]
+
+
 def test_pick_acme_main_domain_prefers_exact_then_single_level_wildcard():
     entries = [
         ("wild.example.com", {"wild.example.com", "*.example.com"}),
