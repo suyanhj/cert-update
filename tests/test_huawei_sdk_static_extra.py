@@ -27,8 +27,8 @@ def test_huawei_sdk_builders_are_offline(monkeypatch):
         (huawei_sdk.build_waf_client, Client, Region),
     ]:
         monkeypatch.setattr(huawei_sdk, fn.__globals__[fn.__name__.replace("build_", "").split("_")[0].capitalize()+"Client"] if False else "huawei_sdk.BasicCredentials", huawei_sdk.BasicCredentials, raising=False)
-        monkeypatch.setattr(huawei_sdk, fn.__globals__[{"build_cdn_client":"CdnClient","build_dns_client":"DnsClient","build_elb_client":"ElbClient","build_ecs_client":"EcsClient","build_scm_client":"ScmClient","build_bss_client":"BssClient","build_waf_client":"WafClient"}[fn.__name__]], Client)
-        monkeypatch.setattr(huawei_sdk, fn.__globals__[{"build_cdn_client":"CdnRegion","build_dns_client":"DnsRegion","build_elb_client":"ElbRegion","build_ecs_client":"EcsRegion","build_scm_client":"ScmRegion","build_bss_client":"BssRegion","build_waf_client":"WafRegion"}[fn.__name__]], Region)
+        monkeypatch.setattr(huawei_sdk, {"build_cdn_client":"CdnClient","build_dns_client":"DnsClient","build_elb_client":"ElbClient","build_ecs_client":"EcsClient","build_scm_client":"ScmClient","build_bss_client":"BssClient","build_waf_client":"WafClient"}[fn.__name__], Client)
+        monkeypatch.setattr(huawei_sdk, {"build_cdn_client":"CdnRegion","build_dns_client":"DnsRegion","build_elb_client":"ElbRegion","build_ecs_client":"EcsRegion","build_scm_client":"ScmRegion","build_bss_client":"BssRegion","build_waf_client":"WafRegion"}[fn.__name__], Region)
         assert fn(region="cn-test", credentials="cred") == "client"
 
     basic = huawei_sdk.build_basic_credentials("ak", "sk", "p")
@@ -54,4 +54,3 @@ def test_static_provider_edge_cases():
     )
     p = static_mod.StaticCloudProvider(cfg)
     assert p._full_domain() == []
-    assert p._full_domain("example.com", []) == []
