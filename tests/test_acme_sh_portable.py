@@ -108,6 +108,7 @@ def test_parse_acme_list_row_handles_empty_and_header():
 
 def test_resolve_acme_main_domain_propagates_list_error(monkeypatch):
     r = object.__new__(AcmeShRenewer)
+    r._acme_sh = "acme.sh"
     def fail(_cmd):
         from app.schemas.acme import AcmeShExecutionError
         raise AcmeShExecutionError("list failed")
@@ -120,7 +121,7 @@ def test_resolve_acme_sh_path_accepts_command_name(monkeypatch):
     monkeypatch.setattr("app.utils.acme_sh.shutil.which", lambda name: "/usr/bin/acme.sh")
     r = object.__new__(AcmeShRenewer)
     r._config = Box({"acme": {"acme_sh_path": "acme.sh"}, "staging": {"enabled": False}})
-    assert r._resolve_acme_sh_path() == "acme.sh"
+    assert r._resolve_acme_sh_path() == "/usr/bin/acme.sh"
 
 
 def test_resolve_acme_sh_path_rejects_missing_explicit_path(tmp_path):
