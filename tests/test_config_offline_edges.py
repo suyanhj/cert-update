@@ -86,10 +86,16 @@ def test_config_paths_merge_extends_and_validation_expansion(tmp_path, monkeypat
 def test_config_set_path_and_runtime_cache(monkeypatch, tmp_path):
     target = tmp_path / "config.yaml"
     target.write_text("x: 1", encoding="utf-8")
-    cfg.set_config_path(target)
-    assert cfg.CONFIG_PATH == target
-    with pytest.raises(ValueError):
-        cfg.set_config_path(tmp_path)
+    old_path = cfg.CONFIG_PATH
+    old_cache = cfg._CONFIG_CACHE
+    try:
+        cfg.set_config_path(target)
+        assert cfg.CONFIG_PATH == target
+        with pytest.raises(ValueError):
+            cfg.set_config_path(tmp_path)
+    finally:
+        cfg.CONFIG_PATH = old_path
+        cfg._CONFIG_CACHE = old_cache
 
     conf = SimpleNamespace(log_level="INFO")
     monkeypatch.setattr(cfg, "set_global_log_level", lambda value: (_ for _ in ()).throw(RuntimeError("bad")))
