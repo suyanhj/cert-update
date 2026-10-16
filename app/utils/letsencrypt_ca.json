@@ -1,0 +1,82 @@
+{
+  "YE1": {
+    "url": "https://letsencrypt.org/certs/gen-y/int-ye1.pem",
+    "sha256": "a2372d06431e9716365eeed47ec020351497d182fcc038e457e58168a03cac07"
+  },
+  "YE2": {
+    "url": "https://letsencrypt.org/certs/gen-y/int-ye2.pem",
+    "sha256": "97658de8c68dfa98ace1e5028a63d54a1aae911b3e21471076c6850cd08cbab4"
+  },
+  "YE3": {
+    "url": "https://letsencrypt.org/certs/gen-y/int-ye3.pem",
+    "sha256": "82bcfc482cc19f71e6f98f4a027616ebda6d47096d408b336160d1c0ef8b995a"
+  },
+  "YR1": {
+    "url": "https://letsencrypt.org/certs/gen-y/int-yr1.pem",
+    "sha256": "13949634d99cd6fd6aa80bc034fefacceb1969feef986586713ecdbb05758d3f"
+  },
+  "YR2": {
+    "url": "https://letsencrypt.org/certs/gen-y/int-yr2.pem",
+    "sha256": "238b85a0099c65b970477d5724f1a1d475ce5058cffe4efa8733899bdb863c47"
+  },
+  "YR3": {
+    "url": "https://letsencrypt.org/certs/gen-y/int-yr3.pem",
+    "sha256": "35500cb63b8d9769528d65d87220f51c069807a595acbf2fb6eca38fbe0a4bd2"
+  },
+  "E5": {
+    "url": "https://letsencrypt.org/certs/2024/e5.pem",
+    "sha256": "e788d14b0436b5120bbee3f15c15badf08c1407fe72568a4f16f9151c380e1e3"
+  },
+  "E6": {
+    "url": "https://letsencrypt.org/certs/2024/e6.pem",
+    "sha256": "065ab7d2a050f947587121765d8d070c0e1330d5798faa42c2072749ed293762"
+  },
+  "E7": {
+    "url": "https://letsencrypt.org/certs/2024/e7.pem",
+    "sha256": "54715420224c5b65beed018dc3940d7338c577e322d5488f633d8c6a8fed61b2"
+  },
+  "E8": {
+    "url": "https://letsencrypt.org/certs/2024/e8.pem",
+    "sha256": "ac1274542267f17b525535b5563bf731febb182533b46a82dc869cb64eb528c0"
+  },
+  "E9": {
+    "url": "https://letsencrypt.org/certs/2024/e9.pem",
+    "sha256": "4185df97806c2ba76f1d79823f112ffa639a49ccdc990908102067ab6412b886"
+  },
+  "R10": {
+    "url": "https://letsencrypt.org/certs/2024/r10.pem",
+    "sha256": "9d7c3f1aa6ad2b2ec0d5cf1e246f8d9ae6cbc9fd0755ad37bb974b1f2fb603f3"
+  },
+  "R11": {
+    "url": "https://letsencrypt.org/certs/2024/r11.pem",
+    "sha256": "591e9ce6c863d3a079e9fabe1478c7339a26b21269dde795211361024ae31a44"
+  },
+  "R12": {
+    "url": "https://letsencrypt.org/certs/2024/r12.pem",
+    "sha256": "131fce7784016899a5a00203a9efc80f18ebbd75580717edc1553580930836ec"
+  },
+  "R13": {
+    "url": "https://letsencrypt.org/certs/2024/r13.pem",
+    "sha256": "d3b128216a843f8ef1321501f5df52a5df52939ee2c19297712cd3de4d419354"
+  },
+  "R14": {
+    "url": "https://letsencrypt.org/certs/2024/r14.pem",
+    "sha256": "24d45aa9b8d6053d281f3842c8cc0c6c1af7ccdfd42dd5c12f6a74fa9323f7a2"
+  },
+  "Root YE": {
+    "url": "https://letsencrypt.org/certs/gen-y/root-ye-by-x2.pem",
+    "sha256": "0fc0901cca2bae9e9fdbb02d50d02f1094f7b36672086991b9e897626dc485f0"
+  },
+  "Root YR": {
+    "url": "https://letsencrypt.org/certs/gen-y/root-yr-by-x1.pem",
+    "sha256": "072639d0b140d5bffae16ad9c3f6cc6086040621f51ee61a6d46a8915c07cf76"
+  },
+  "ISRG Root X2": {
+    "url": "https://letsencrypt.org/certs/gen-y/root-x2-by-x1.pem",
+    "sha256": "ee5f7abd6981bb0255632cd8f49283451b4b18844d12040b44ee00f07b8fe2c6"
+  },
+  "ISRG Root X1": {
+    "url": "https://letsencrypt.org/certs/isrgrootx1.pem",
+    "sha256": "96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6"
+  }
+}

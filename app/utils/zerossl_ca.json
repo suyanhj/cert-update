@@ -1,0 +1,42 @@
+{
+  "ZeroSSL RSA DV SSL CA 2": {
+    "url": "https://secure.sectigo.com/products/download/cacert/ZeroSSLRSADVSSLCA2.crt",
+    "sha256": "ec9d6bcab9818b7dd59ed61da23a658a96a9c4e950edee0d2da93e7cf2174780",
+    "format": "der"
+  },
+  "ZeroSSL ECC DV SSL CA 2": {
+    "url": "https://secure.sectigo.com/products/download/cacert/ZeroSSLECCDVSSLCA2.crt",
+    "sha256": "bec84fce0daa423f3b3eed38ea48066cc5618f5244ad65cd9f8624a813fa4c3d",
+    "format": "der"
+  },
+  "ZeroSSL RSA Domain Secure Site CA": {
+    "url": "https://secure.sectigo.com/products/download/cacert/ZeroSSLRSADomainSecureSiteCA.crt",
+    "sha256": "21acc1dbd6944f9ac18c782cb5c328d6c2821c6b63731fa3b8987f5625de8a0d",
+    "format": "der"
+  },
+  "ZeroSSL ECC Domain Secure Site CA": {
+    "url": "https://secure.sectigo.com/products/download/cacert/ZeroSSLECCDomainSecureSiteCA.crt",
+    "sha256": "5dd661d3cb33b5005cbed045a223ddc4445aaa41d1acb5df700884cad9ba4195",
+    "format": "der"
+  },
+  "USERTrust RSA Certification Authority": {
+    "url": "https://secure.sectigo.com/products/download/cacert/USERTrustRSACertificationAuthority.crt",
+    "sha256": "e793c9b02fd8aa13e21c31228accb08119643b749c898964b1746d46c3d4cbd2",
+    "format": "der"
+  },
+  "USERTrust ECC Certification Authority": {
+    "url": "https://secure.sectigo.com/products/download/cacert/USERTrustECCCertificationAuthority.crt",
+    "sha256": "4ff460d54b9c86dabfbcfc5712e0400d2bed3fbc4d4fbdaa86e06adcd2a9ad7a",
+    "format": "der"
+  },
+  "Sectigo Public Server Authentication Root R46": {
+    "url": "https://secure.sectigo.com/products/download/cacert/SectigoPublicServerAuthenticationRootR46_USERTrust.crt",
+    "sha256": "92f351bf3d54164dfa8dd8f9e1139d3150349786485d2b9eecd00e2971c1e6c5",
+    "format": "der"
+  },
+  "Sectigo Public Server Authentication Root E46": {
+    "url": "https://secure.sectigo.com/products/download/cacert/SectigoPublicServerAuthenticationRootE46_USERTrust.crt",
+    "sha256": "ea6b89ed6907a209ff9188676fb164e7aced894b8996dfbe5ce5bbcc22de4ddd",
+    "format": "der"
+  }
+}
