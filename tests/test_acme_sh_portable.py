@@ -1,11 +1,9 @@
 """Offline tests for acme.sh parsing, provider env mapping and command errors."""
-from types import SimpleNamespace
-
 import pytest
 from box import Box
 
 from app.utils.acme_sh import AcmeShRenewer
-from app.schemas.acme import AcmeShConfigError, AcmeShNotFoundError
+from app.schemas.acme import AcmeShConfigError, AcmeShExecutionError, AcmeShNotFoundError
 
 
 def renewer_with_providers(providers):
@@ -84,7 +82,7 @@ def test_build_provider_env_requires_credentials(ptype, missing):
 @pytest.mark.parametrize(
     "output,expected",
     [
-        ("Main_Domain KeyLength SAN_Domains Created Renew\nexample.com ec-256 www.example.com,api.example.com 2026-01-01T00:00:00 2026-02-01T00:00:00", [("example.com", {"example.com", "www.example.com", "api.example.com"})]),
+        ("Main_Domain KeyLength SAN_Domains Created Renew\nexample.com ec-256 www.example.com,api.example.com LetsEncrypt 2026-01-01T00:00:00 2026-02-01T00:00:00", [("example.com", {"example.com", "www.example.com", "api.example.com"})]),
         ("no certificates", []),
         ("", []),
     ],
@@ -119,6 +117,7 @@ def test_resolve_acme_main_domain_propagates_list_error(monkeypatch):
 
 
 def test_resolve_acme_sh_path_accepts_command_name(monkeypatch):
+    monkeypatch.setattr("app.utils.acme_sh.shutil.which", lambda name: "/usr/bin/acme.sh")
     r = object.__new__(AcmeShRenewer)
     r._config = Box({"acme": {"acme_sh_path": "acme.sh"}, "staging": {"enabled": False}})
     assert r._resolve_acme_sh_path() == "acme.sh"
