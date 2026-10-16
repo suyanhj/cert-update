@@ -137,7 +137,7 @@ def test_deploy_cdn_alb_oss_and_unsupported(monkeypatch):
 def test_deploy_slb_uploads_server_certificate_and_binds_listener(monkeypatch):
     d, _ = make_deployer(monkeypatch)
     calls = []
-    d._regional_clients["cn-beijing"]["slb_client"] = SimpleNamespace(
+    d._get_region_clients("cn-beijing")["slb_client"] = SimpleNamespace(
         upload_server_certificate=lambda req: (
             calls.append(("upload", req)) or SimpleNamespace(body=SimpleNamespace(server_certificate_id="slb-cert"))
         ),
