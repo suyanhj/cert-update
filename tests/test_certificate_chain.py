@@ -304,3 +304,116 @@ def test_timeout_must_be_positive(hierarchy):
     _, _, leaf = hierarchy
     with pytest.raises(module.CertificateChainError, match="timeout 必须大于 0"):
         module.complete_certificate_chain(module._pem(leaf("R10")), timeout=0)
+
+
+def test_parse_pem_accepts_bytes_and_rejects_trailing_whitespace(hierarchy):
+    _, _, leaf = hierarchy
+    pem = module._pem(leaf("R10")).encode("ascii")
+    assert len(module._parse_pem(pem + b"\n")) == 1
+
+
+@pytest.mark.parametrize(
+    "hostname,expected_type",
+    [
+        ("example.com", module.x509.DNSName),
+        ("xn--bcher-kva.example", module.x509.DNSName),
+        ("192.0.2.10", module.x509.IPAddress),
+    ],
+)
+def test_verification_subject_types(hostname, expected_type):
+    assert isinstance(module._verification_subject(hostname), expected_type)
+
+
+@pytest.mark.parametrize("hostname", ["", "*.example.com"])
+def test_verification_subject_rejects_invalid_hostnames(hostname):
+    with pytest.raises(ValueError, match="hostname"):
+        module._verification_subject(hostname)
+
+
+def test_download_ca_success_for_pem_catalog_entry(hierarchy):
+    certs, _, _ = hierarchy
+    original = module.CA_CATALOG
+    catalog = dict(original)
+    catalog["R10"] = {**catalog["R10"], "format": "pem"}
+    module.CA_CATALOG = catalog
+    try:
+        body = module._pem(certs["R10"]).encode("ascii")
+        client = HTTP_CLIENT(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, content=body))
+        )
+        try:
+            assert module._fingerprint(module._download_ca(client, "R10", 1)) == module._fingerprint(certs["R10"])
+        finally:
+            client.close()
+    finally:
+        module.CA_CATALOG = original
+
+
+def test_download_ca_rejects_fingerprint_mismatch(hierarchy):
+    certs, _, _ = hierarchy
+    original = module.CA_CATALOG
+    catalog = dict(original)
+    catalog["R10"] = {**catalog["R10"], "sha256": "0" * 64}
+    module.CA_CATALOG = catalog
+    try:
+        body = module._pem(certs["R10"]).encode("ascii")
+        client = HTTP_CLIENT(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, content=body))
+        )
+        try:
+            with pytest.raises(module.CertificateChainError, match="指纹不匹配"):
+                module._download_ca(client, "R10", 1)
+        finally:
+            client.close()
+    finally:
+        module.CA_CATALOG = original
+
+
+def test_download_ca_rejects_malformed_der(hierarchy):
+    original = module.CA_CATALOG
+    catalog = dict(original)
+    catalog["R10"] = {**catalog["R10"], "format": "der"}
+    module.CA_CATALOG = catalog
+    try:
+        client = HTTP_CLIENT(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, content=b"not-a-certificate"))
+        )
+        try:
+            with pytest.raises(module.CertificateChainError, match="无法解析官方 CA"):
+                module._download_ca(client, "R10", 1)
+        finally:
+            client.close()
+    finally:
+        module.CA_CATALOG = original
+
+
+def test_input_ca_with_wrong_issuer_is_unused_and_official_path_wins(hierarchy):
+    certs, calls, leaf = hierarchy
+    key = ec.generate_private_key(ec.SECP256R1())
+    fake = issue(
+        certs["R10"].subject,
+        key,
+        certs["R10"].subject,
+        key,
+    )
+    result = module.complete_certificate_chain(
+        module._pem(leaf("R10")) + module._pem(fake)
+    )
+    assert result.unused_certificates == 1
+    assert len(calls) == 1
+    assert result.root_pem == module._pem(certs[module.ROOT])
+
+
+def test_cli_missing_input_returns_failure(tmp_path):
+    missing = tmp_path / "missing.pem"
+    output = tmp_path / "fullchain.pem"
+    assert module.main([str(missing), str(output)]) == 1
+    assert not output.exists()
+
+
+def test_unicode_hostname_is_normalized_for_verification(hierarchy):
+    _, _, leaf = hierarchy
+    cert = leaf("R10", sans=[x509.DNSName("xn--bcher-kva.example")])
+    assert "OK" in module.complete_certificate_chain(
+        module._pem(cert), hostname="bücher.example"
+    ).verify_output
