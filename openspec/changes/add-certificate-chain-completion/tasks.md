@@ -39,3 +39,8 @@ ZeroSSL 验证记录：
 - 新增 ZeroSSL 专项测试：目录/路径回归、DER 解析、未知 ZeroSSL CA 拒绝、可选真实 TLS 端点在线补链。
 - 部署入口覆盖 ZeroSSL 的写回、备份、幂等及多平台共享；dry-run 不触发补链。
 - 真实在线验证使用环境变量 `ZERO_SSL_TEST_DOMAIN` 指定当前实际 ZeroSSL 站点，避免将第三方站点硬编码进测试；未设置时测试自动跳过。
+
+
+CI 验证：
+- GitHub Actions 已增加 `.github/workflows/certificate-chain.yml`，Python 3.12 自动执行 ZeroSSL 单元回归和官方 CA 下载集成测试。
+- 2026-10-16 最新 `dev` CI run #2 成功，两个 ZeroSSL 测试步骤均通过。
