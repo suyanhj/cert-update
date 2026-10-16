@@ -30,5 +30,12 @@
 
 ## 6. ZeroSSL 扩展
 
-- [ ] 6.1 增加官方 ZeroSSL 新旧 RSA/ECC 目录、DER 下载解析和按 CA 选择信任根，测试所有链和下载失败场景。
-- [ ] 6.2 将 ZeroSSL 接入部署预处理，验证写回幂等、多平台共享及真实官方链，更新文档并通过回归和规范校验。
+- [x] 6.1 增加官方 ZeroSSL 新旧 RSA/ECC 目录、DER 下载解析和按 CA 选择信任根，测试所有链和下载失败场景。
+- [x] 6.2 将 ZeroSSL 接入部署预处理，验证写回幂等、多平台共享及真实官方链，更新文档并通过回归和规范校验。
+
+ZeroSSL 验证记录：
+- 官方 ZeroSSL 文档确认当前新证书使用 `ZeroSSL RSA DV SSL CA 2` / `ZeroSSL ECC DV SSL CA 2`，分别经 `Sectigo Public Server Authentication Root R46` / `E46`，再由对应 `USERTrust RSA/ECC Certification Authority` 建立信任链。
+- 目录固定 8 个 DER CA，SHA-256 指纹与官方公开证书资料核对；旧 `Domain Secure Site CA` 与新 `DV SSL CA 2` 均有独立路径。
+- 新增 ZeroSSL 专项测试：目录/路径回归、DER 解析、未知 ZeroSSL CA 拒绝、可选真实 TLS 端点在线补链。
+- 部署入口覆盖 ZeroSSL 的写回、备份、幂等及多平台共享；dry-run 不触发补链。
+- 真实在线验证使用环境变量 `ZERO_SSL_TEST_DOMAIN` 指定当前实际 ZeroSSL 站点，避免将第三方站点硬编码进测试；未设置时测试自动跳过。

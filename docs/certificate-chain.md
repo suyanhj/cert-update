@@ -1,4 +1,4 @@
-# Let's Encrypt 证书链补全
+# Let's Encrypt / ZeroSSL 证书链补全
 
 在 crt 项目目录运行，需要 requirements.txt 中的 cryptography>=50.0.2 和 httpx，无需安装 OpenSSL 命令。
 
@@ -27,8 +27,12 @@ API 抛出 `CertificateChainError` 表示输入、下载或验证失败。可传
 | YR1 / YR2 / YR3 | YR → Root YR（X1 交叉签名）→ X1 |
 | R10–R14 | R → X1 |
 | E5–E9 | E → X2（X1 交叉签名）→ X1 |
+| ZeroSSL RSA Domain Secure Site CA | ZeroSSL RSA Domain Secure Site CA → USERTrust RSA Certification Authority |
+| ZeroSSL ECC Domain Secure Site CA | ZeroSSL ECC Domain Secure Site CA → USERTrust ECC Certification Authority |
+| ZeroSSL RSA DV SSL CA 2 | ZeroSSL RSA DV SSL CA 2 → Sectigo Public Server Authentication Root R46 → USERTrust RSA Certification Authority |
+| ZeroSSL ECC DV SSL CA 2 | ZeroSSL ECC DV SSL CA 2 → Sectigo Public Server Authentication Root E46 → USERTrust ECC Certification Authority |
 
-路径依据 [Let's Encrypt 官方 CA 目录](https://letsencrypt.org/certificates/)，目录和 SHA-256 指纹核对日期为 2026-10-16。只有缺失的规范路径证书才会下载；仅访问目录内官方 HTTPS 地址，不跟随重定向。官方更换证书后需审核并更新 `app/utils/letsencrypt_ca.json` 的 URL 和 DER SHA-256 指纹。
+Let's Encrypt 路径依据 [Let's Encrypt 官方 CA 目录](https://letsencrypt.org/certificates/)；ZeroSSL 路径依据 [ZeroSSL 官方链说明](https://help.zerossl.com/hc/en-us/articles/360060198034-Legacy-Client-Compatibility-Cross-Signed-Root-Certificates) 及 Sectigo 官方公开根层级说明。目录和 SHA-256 指纹核对日期为 2026-10-16。ZeroSSL 新证书当前使用 RSA/ECC `DV SSL CA 2`，分别经 R46/E46 再到 USERTrust 同类自签根；旧证书仍可能使用 `Domain Secure Site CA`。只有缺失的规范路径证书才会下载；仅访问目录内固定官方 HTTPS 地址，不跟随重定向。官方更换证书后需审核并更新对应 CA JSON 的 URL 和 SHA-256 指纹。
 
 `fullchain_pem` 包含叶证书及所需中间/交叉签名证书，末尾包含自签 X1；`ca_pem` 包含中间链和自签 X1，`root_pem` 是用于验证的 X1。`chain_names` 和 `missing_ca` 包括验证根，因此缺失 X1 也会记录并下载，并放到输出链末尾。`duplicates_removed` 统计同指纹重复项，`unused_certificates` 统计未采用的其他 CA。不同签名版本不会按名称错误合并。
 

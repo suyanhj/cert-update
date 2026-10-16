@@ -19,24 +19,52 @@ LOGGER = logging.getLogger("app.certificate_chain")
 CA_CATALOG = json.loads(Path(__file__).with_name("letsencrypt_ca.json").read_text(encoding="utf-8"))
 CA_CATALOG.update(json.loads(Path(__file__).with_name("zerossl_ca.json").read_text(encoding="utf-8")))
 ROOT = "ISRG Root X1"
+
+# ZeroSSL 目前同时存在两代公开 DV 层级：
+#   旧：Domain Secure Site CA -> USERTrust 同类自签根
+#   新：DV SSL CA 2 -> Sectigo Public Server Authentication Root R46/E46
+#       -> USERTrust 同类自签根。
+# 显式建模路径，避免后续只按名称猜测 RSA/ECC 的信任根。
+ZERO_SSL_PATHS = {
+    "ZeroSSL RSA Domain Secure Site CA": (
+        "ZeroSSL RSA Domain Secure Site CA",
+        "USERTrust RSA Certification Authority",
+    ),
+    "ZeroSSL ECC Domain Secure Site CA": (
+        "ZeroSSL ECC Domain Secure Site CA",
+        "USERTrust ECC Certification Authority",
+    ),
+    "ZeroSSL RSA DV SSL CA 2": (
+        "ZeroSSL RSA DV SSL CA 2",
+        "Sectigo Public Server Authentication Root R46",
+        "USERTrust RSA Certification Authority",
+    ),
+    "ZeroSSL ECC DV SSL CA 2": (
+        "ZeroSSL ECC DV SSL CA 2",
+        "Sectigo Public Server Authentication Root E46",
+        "USERTrust ECC Certification Authority",
+    ),
+}
+ZERO_SSL_ISSUER_ORGANIZATIONS = {
+    "ZeroSSL RSA Domain Secure Site CA": "ZeroSSL",
+    "ZeroSSL ECC Domain Secure Site CA": "ZeroSSL",
+    "ZeroSSL RSA DV SSL CA 2": "ZeroSSL GmbH",
+    "ZeroSSL ECC DV SSL CA 2": "ZeroSSL GmbH",
+}
+
 CA_PATHS = {
     **{f"YE{i}": (f"YE{i}", "Root YE", "ISRG Root X2", ROOT) for i in range(1, 4)},
     **{f"YR{i}": (f"YR{i}", "Root YR", ROOT) for i in range(1, 4)},
     **{f"R{i}": (f"R{i}", ROOT) for i in range(10, 15)},
     **{f"E{i}": (f"E{i}", "ISRG Root X2", ROOT) for i in range(5, 10)},
-    **{f"ZeroSSL {kind} Domain Secure Site CA": (
-        f"ZeroSSL {kind} Domain Secure Site CA", f"USERTrust {kind} Certification Authority",
-    ) for kind in ("RSA", "ECC")},
-    **{f"ZeroSSL {kind} DV SSL CA 2": (
-        f"ZeroSSL {kind} DV SSL CA 2", f"Sectigo Public Server Authentication Root {root}",
-        f"USERTrust {kind} Certification Authority",
-    ) for kind, root in (("RSA", "R46"), ("ECC", "E46"))},
+    **ZERO_SSL_PATHS,
 }
 CA_ORGANIZATIONS = {
-    name: ("ZeroSSL GmbH" if "DV SSL CA 2" in name else "ZeroSSL")
-    if name.startswith("ZeroSSL ") else "Let's Encrypt"
+    name: "Let's Encrypt"
     for name in CA_PATHS
+    if name not in ZERO_SSL_ISSUER_ORGANIZATIONS
 }
+CA_ORGANIZATIONS.update(ZERO_SSL_ISSUER_ORGANIZATIONS)
 SUPPORTED_ISSUER_ORGANIZATIONS = frozenset(CA_ORGANIZATIONS.values())
 PEM_BLOCK = re.compile(rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", re.DOTALL)
 MAX_CA_BYTES = 64 * 1024

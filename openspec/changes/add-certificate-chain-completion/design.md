@@ -2,7 +2,7 @@
 
 ## Context
 
-参见 proposal.md。项目已有 cryptography/httpx，证书工具位于 app/utils。官方资料：https://letsencrypt.org/certificates/。
+参见 proposal.md。项目已有 cryptography/httpx，证书工具位于 app/utils。官方资料：https://letsencrypt.org/certificates/；ZeroSSL 链说明：https://help.zerossl.com/hc/en-us/articles/360060198034-Legacy-Client-Compatibility-Cross-Signed-Root-Certificates；Sectigo 根层级：https://www.sectigo.com/knowledge-base/detail/Sectigo-new-Public-Roots-and-Issuing-CAs-Hierarchy。
 
 ## Goals / Non-Goals
 
@@ -24,7 +24,7 @@
 
 ## Deployment Integration
 
-- apply_deploy 在任何云查询、上传及 Nginx 操作前，通过线程执行一次预处理；dry-run 不写文件。所有平台共享替换后的 RenewedCert。
+- apply_deploy 在任何云查询、上传及 Nginx 操作前，通过线程执行一次预处理；dry-run 不写文件。所有平台共享替换后的 RenewedCert。ZeroSSL 与 Let's Encrypt 使用同一预处理入口。
 - 基于已解析的 issuer 筛选 Let's Encrypt、ZeroSSL 和 ZeroSSL GmbH；重新读取实际 fullchain_path，核对加载快照、私钥和域名，补链失败终止部署。
 - 完整链按指纹及顺序相同时不写文件、不下载、不备份。变化时保留原编码换行，先备份原文件，再同目录临时文件原子替换；保留权限和所有者。
 - 只更新实际选定的 fullchain 文件，不另改独立叶证书、CA 文件及私钥；内存 cert_pem/fullchain_pem/ca_pem 同步。
@@ -32,4 +32,9 @@
 
 ## ZeroSSL
 
-旧版 RSA/ECC Domain Secure Site CA 直接补到对应 USERTrust 自签根；新版 RSA/ECC DV SSL CA 2 经 Sectigo Public Server Authentication Root R46/E46 的 USERTrust 交叉签名版补到同类 USERTrust 根。新增独立 zerossl_ca.json，启动时合并目录；从 secure.sectigo.com 官方 HTTPS 下载 DER，按固定指纹验证。未知 ZeroSSL CA 必须报错，不降级跳过。
+- 旧版 RSA/ECC `Domain Secure Site CA` 直接补到对应 USERTrust 自签根。
+- 新版 RSA/ECC `DV SSL CA 2` 分别经 `Sectigo Public Server Authentication Root R46/E46` 的 USERTrust 交叉签名版，再到对应 USERTrust 自签根。
+- 新增独立 `zerossl_ca.json`，启动时与 Let's Encrypt 目录合并；所有 ZeroSSL/Sectigo CA 使用 DER 格式和固定 SHA-256 指纹。
+- ZeroSSL CA 下载只允许 `https://secure.sectigo.com/products/download/cacert/` 固定官方 HTTPS 路径，禁止重定向；下载内容必须是单个 CA、指纹必须精确匹配。
+- 未知 ZeroSSL 签发 CA 必须报错，不降级跳过。
+- 真实官方链验证以 ZeroSSL 官方文档给出的 CA2 → R46/E46 → USERTrust 关系为基准；部署入口共享补链结果并保持幂等。
