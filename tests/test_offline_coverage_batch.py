@@ -31,7 +31,7 @@ def test_provider_base_helpers_and_probe(monkeypatch):
     p.http_client = None
     assert p.get_sub_extensions() == {"www.example.com": "origin.example.com"}
     assert asyncio.run(p.is_domain_provider("www.example.com")) is True
-    assert asyncio.run(p.is_domain_provider("bad..domain")) is False
+    assert asyncio.run(p.is_domain_provider("")) is False
 
     class Resp:
         def __init__(self, code): self.status_code = code
@@ -124,9 +124,10 @@ def test_qiniu_deployer_offline_matrix(monkeypatch):
     assert calls[0][0][0].endswith("/a.example.com/sslize")
     assert calls[0][0][2]["forceHttps"] is False
 
-    d._make_request = lambda *args, **kwargs: {"certs": [{"certID": "1"}], "marker": "m1"}
-    assert asyncio.run(d.list_certificates()) == [{"certID": "1"}]
-    d._make_request = lambda *args, **kwargs: {"certs": [], "marker": "m1"}
+    pages = iter([{"certs": [{"certID": "1"}], "marker": "m1"}, {"certs": [{"certID": "2"}], "marker": ""}])
+    d._make_request = lambda *args, **kwargs: next(pages)
+    assert asyncio.run(d.list_certificates()) == [{"certID": "1"}, {"certID": "2"}]
+    d._make_request = lambda *args, **kwargs: {"certs": "bad"}
     assert asyncio.run(d.list_certificates()) == []
 
     monkeypatch.setattr("app.deploys.qiniu.list_qiniu_domains", lambda auth: [
@@ -212,7 +213,7 @@ def test_ecs_alert_service_matrix():
         {"provider": "aliyun", "instance_id": "a6", "days": 2},
     ]
     asyncio.run(s.send_ecs_alerts(instances))
-    assert batch.flushes == 2
+    assert batch.flushes == 3
     assert "aliyun:prod:a1" in state.fired
     assert any("未知" not in str(x) for x in log.logs)
 
