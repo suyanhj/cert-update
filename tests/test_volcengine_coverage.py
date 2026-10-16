@@ -95,7 +95,8 @@ def test_volcengine_provider_error_is_handled_by_provider_wrapper(monkeypatch):
     p = provider_mod.VolcengineCloudProvider(
         ProviderConfig(name="v", type="volcengine", credentials={})
     )
-    with pytest.raises(RuntimeError, match="network-like failure"):\n        asyncio.run(p.get_domain_list())
+    with pytest.raises(RuntimeError, match="network-like failure"):
+        asyncio.run(p.get_domain_list())
 
 
 def test_volcengine_deployer_lazy_services_and_upload(monkeypatch):
