@@ -1,5 +1,4 @@
 """Offline tests for acme.sh parsing, provider env mapping and command errors."""
-import os
 from types import SimpleNamespace
 
 import pytest
@@ -27,8 +26,8 @@ def renewer_with_providers(providers):
 def test_build_provider_env_maps_credentials(ptype, credentials, expected, monkeypatch):
     provider = Box({"name": "p", "type": ptype, "enabled": True, "credentials": credentials})
     r = renewer_with_providers([provider])
-    os.environ["CF_Account_ID"] = "stale-account"
-    os.environ["CF_Zone_ID"] = "stale-zone"
+    monkeypatch.setenv("CF_Account_ID", "stale-account")
+    monkeypatch.setenv("CF_Zone_ID", "stale-zone")
     env = r._build_provider_env("p")
     for key, value in expected.items():
         assert env[key] == value
@@ -85,8 +84,7 @@ def test_build_provider_env_requires_credentials(ptype, missing):
 @pytest.mark.parametrize(
     "output,expected",
     [
-        ("Main_Domain KeyLength SAN_Domains Created Renew
-example.com ec-256 www.example.com,api.example.com 2026-01-01T00:00:00 2026-02-01T00:00:00", [("example.com", {"example.com", "www.example.com", "api.example.com"})]),
+        ("Main_Domain KeyLength SAN_Domains Created Renew\nexample.com ec-256 www.example.com,api.example.com 2026-01-01T00:00:00 2026-02-01T00:00:00", [("example.com", {"example.com", "www.example.com", "api.example.com"})]),
         ("no certificates", []),
         ("", []),
     ],
