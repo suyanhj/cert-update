@@ -88,7 +88,7 @@ def test_certificates_domain_selection_and_alert_levels(monkeypatch):
         providers=[
             SimpleNamespace(
                 check_extensions=True,
-                sub_extensions=[SimpleNamespace(domain="www.example.com", redirect_to="origin.example.com")],
+                sub_extensions=[{"domain": "www.example.com", "redirect_to": "origin.example.com"}],
             ),
         ],
         alert=SimpleNamespace(
