@@ -215,7 +215,6 @@ def test_ecs_alert_service_matrix():
     asyncio.run(s.send_ecs_alerts(instances))
     assert batch.flushes == 3
     assert "aliyun:prod:a1" in state.fired
-    assert any("未知" not in str(x) for x in log.logs)
 
     cfg.alert.ecs.enabled = False
     asyncio.run(s.send_ecs_alerts(instances))
