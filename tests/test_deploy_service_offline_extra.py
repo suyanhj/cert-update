@@ -77,7 +77,7 @@ def test_deploy_service_static_helpers_and_nginx_auth():
         "h2": {"auth_type": "password", "key_path": "", "password": "secret"},
     }
     with pytest.raises(RuntimeError, match="缺少 ssh_profile"):
-        d._build_nginx_target_auth_map(SimpleNamespace(ssh_profiles=[], nginx=SimpleNamespace(nginx_hosts=[SimpleNamespace(name="h")])))
+        d._build_nginx_target_auth_map(SimpleNamespace(ssh_profiles=[], nginx=SimpleNamespace(nginx_hosts=[SimpleNamespace(name="h", ssh_profile="")])))
 
 
 def test_deploy_service_get_provider_bindings_cache_and_scan():
@@ -114,7 +114,7 @@ def test_deploy_service_get_provider_bindings_cache_and_scan():
 def test_deploy_service_verify_and_notify(monkeypatch):
     d = service()
     provider = SimpleNamespace(config=SimpleNamespace(type="fake", name="p"), name="p")
-    match = DeployMatchResult(provider_type="fake", provider_name="p", product_type="cdn", product_id="c", domain="a.example.com", match_type="exact")
+    match = DeployMatchResult(provider_type="fake", provider_name="p", product_type="cdn", product_id="c", domain="a.example.com", match_type="exact", current_cert_id=None)
     refreshed = CloudProductBinding(provider_name="p", product_type="cdn", product_id="c", domain="a.example.com", cert_id="new", listener_port=443, metadata={"x": 1})
     d._get_provider_bindings = lambda **kwargs: asyncio.sleep(0, result=[refreshed])
 
