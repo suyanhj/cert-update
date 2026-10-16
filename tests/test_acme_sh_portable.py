@@ -24,7 +24,7 @@ def renewer_with_providers(providers):
         ("cloudflare", {"api_token": "token"}, {"CF_Token": "token"}),
     ],
 )
-def test_build_provider_env_maps_credentials(ptype, credentials, expected):
+def test_build_provider_env_maps_credentials(ptype, credentials, expected, monkeypatch):
     provider = Box({"name": "p", "type": ptype, "enabled": True, "credentials": credentials})
     r = renewer_with_providers([provider])
     os.environ["CF_Account_ID"] = "stale-account"
