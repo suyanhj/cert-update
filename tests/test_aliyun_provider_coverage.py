@@ -106,7 +106,7 @@ def test_region_discovery_and_scan_region_fallbacks(monkeypatch):
 
     assert p._discover_slb_regions() == ["cn-beijing"]
     assert p._discover_alb_regions() == ["cn-shanghai", "cn-hongkong"]
-    assert p._discover_ecs_regions() == ["cn-shenzhen"]
+    assert p._discover_ecs_regions() == ["cn-shenzhen", "cn-southeast-1"]
     assert p._get_slb_scan_regions() == ["cn-beijing"]
     assert p._get_alb_scan_regions() == ["cn-shanghai", "cn-hongkong"]
     assert p._get_ecs_scan_regions() == ["cn-shenzhen"]
@@ -229,7 +229,7 @@ def test_get_dns_records_paginates_and_filters_probe_targets(monkeypatch):
         ]
         if req.page_number == 1:
             return SimpleNamespace(body=SimpleNamespace(total_count=4, domain_records=SimpleNamespace(record=records)))
-        return SimpleNamespace(body=SimpleNamespace(total_count=501, domain_records=SimpleNamespace(record=[records[0]])))
+        return SimpleNamespace(body=SimpleNamespace(total_count=4, domain_records=SimpleNamespace(record=[records[0]])))
 
     p._dns_client = SimpleNamespace(describe_domain_records=describe)
     monkeypatch.setattr(
@@ -494,9 +494,9 @@ def test_swas_filters_non_prepaid_invalid_and_missing_expiry():
         list_instances=lambda req: SimpleNamespace(
             body=SimpleNamespace(
                 instances=[
-                    SimpleNamespace(charge_type="Postpaid", instance_id="post", expired_time="", instance_name=""),
-                    SimpleNamespace(charge_type="Prepaid", instance_id="", expired_time="", instance_name=""),
-                    SimpleNamespace(charge_type="Prepaid", instance_id="pre", expired_time="", instance_name=""),
+                    SimpleNamespace(charge_type="Postpaid", instance_id="post", expired_time="", instance_name="", region_id="cn-hangzhou", status="Running"),
+                    SimpleNamespace(charge_type="Prepaid", instance_id="", expired_time="", instance_name="", region_id="cn-hangzhou", status="Running"),
+                    SimpleNamespace(charge_type="Prepaid", instance_id="pre", expired_time="", instance_name="", region_id="cn-hangzhou", status="Running"),
                     SimpleNamespace(
                         charge_type="Prepaid",
                         instance_id="bad-date",
