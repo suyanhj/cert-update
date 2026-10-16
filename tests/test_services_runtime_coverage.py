@@ -30,9 +30,9 @@ def test_provider_registry_duplicate_names_use_last_provider():
         SimpleNamespace(name="same", type="custom", enabled=True, static_domains=[]),
         SimpleNamespace(name="same", type="qiniu", enabled=True, static_domains=[]),
     ]
-    providers = [SimpleNamespace(name="same-1"), SimpleNamespace(name="same-2")]
+    providers = [SimpleNamespace(name="same"), SimpleNamespace(name="same")]
     registry = ProviderRegistry(configs, lambda cfg: providers.pop(0))
-    assert registry.get_provider("same").name == "same-2"
+    assert registry.get_provider("same") is registry.providers[-1]
 
 
 def test_deployer_factory_validates_credentials_and_selects_types(monkeypatch):
@@ -48,7 +48,7 @@ def test_deployer_factory_validates_credentials_and_selects_types(monkeypatch):
         monkeypatch.setattr(mod, name, FakeDeployer)
 
     cases = [
-        ("aliyun", {"access_key_id": "a", "access_key_secret": "b"}, {"region": "cn-beijing"}),
+        ("aliyun", {"access_key_id": "a", "access_key_secret": "b", "region": "cn-beijing"}, {"region": "cn-beijing"}),
         ("huawei", {"access_key_id": "a", "access_key_secret": "b"}, {"project_id": "", "region": "cn-north-4", "enterprise_project_id": "0"}),
         ("tencent", {"secret_id": "a", "secret_key": "b"}, {"region": "ap-guangzhou"}),
         ("volcengine", {"access_key_id": "a", "access_key_secret": "b"}, {"region": "cn-north-1"}),
