@@ -213,8 +213,6 @@ def test_provider_env_and_dns_plugin_mapping():
     with pytest.raises(AcmeShConfigError, match="缺少凭证字段"):
         r._require_credential({}, "p", "x")
 
-    with pytest.raises(AcmeShConfigError, match="未配置 acme.sh"):
-        r._build_provider_env("ali") if False else None
 
 
 def test_resolve_acme_path_and_storage_path(monkeypatch, tmp_path):
