@@ -34,7 +34,7 @@ API 抛出 `CertificateChainError` 表示输入、下载或验证失败。可传
 
 Let's Encrypt 路径依据 [Let's Encrypt 官方 CA 目录](https://letsencrypt.org/certificates/)；ZeroSSL 路径依据 [ZeroSSL 官方链说明](https://help.zerossl.com/hc/en-us/articles/360060198034-Legacy-Client-Compatibility-Cross-Signed-Root-Certificates) 及 Sectigo 官方公开根层级说明。目录和 SHA-256 指纹核对日期为 2026-10-16。ZeroSSL 新证书当前使用 RSA/ECC `DV SSL CA 2`，分别经 R46/E46 再到 USERTrust 同类自签根；旧证书仍可能使用 `Domain Secure Site CA`。只有缺失的规范路径证书才会下载；仅访问目录内固定官方 HTTPS 地址，不跟随重定向。官方更换证书后需审核并更新对应 CA JSON 的 URL 和 SHA-256 指纹。
 
-`fullchain_pem` 包含叶证书及所需中间/交叉签名证书，末尾包含自签 X1；`ca_pem` 包含中间链和自签 X1，`root_pem` 是用于验证的 X1。`chain_names` 和 `missing_ca` 包括验证根，因此缺失 X1 也会记录并下载，并放到输出链末尾。`duplicates_removed` 统计同指纹重复项，`unused_certificates` 统计未采用的其他 CA。不同签名版本不会按名称错误合并。
+`fullchain_pem` 包含叶证书及所需中间/交叉签名证书，末尾包含对应的官方自签根；`ca_pem` 包含中间链和该自签根，`root_pem` 是本次路径实际使用的验证信任锚。Let's Encrypt 路径末尾是 X1，ZeroSSL 路径末尾是对应的 USERTrust RSA/ECC 自签根。`chain_names` 和 `missing_ca` 包括验证根，因此缺失 X1 也会记录并下载，并放到输出链末尾。`duplicates_removed` 统计同指纹重复项，`unused_certificates` 统计未采用的其他 CA。不同签名版本不会按名称错误合并。
 
 验证使用 [cryptography.x509.verification](https://cryptography.io/en/50.0.0/x509/verification/) 的 `PolicyBuilder`、`Store` 和服务端验证器，检查签名、有效期、服务端用途及 WebPKI 扩展约束。仅信任已固定指纹的官方 X1。全程在内存中验证，不启动子进程、不创建验证临时文件。
 
