@@ -14,16 +14,16 @@ def run(coro):
 
 
 def config(*, mode="dry-run", blacklist=None, cooldown=7, retries=3, interval=0, providers=None):
-    return SimpleNamespace(
-        blacklist=blacklist or [],
-        providers=providers or [],
-        deploy=SimpleNamespace(
-            mode=mode,
-            renew_cooldown_days=cooldown,
-            max_renew_retries=retries,
-            renew_retry_interval_seconds=interval,
-        ),
-    )
+    return Box({
+        "blacklist": blacklist or [],
+        "providers": providers or [],
+        "deploy": {
+            "mode": mode,
+            "renew_cooldown_days": cooldown,
+            "max_renew_retries": retries,
+            "renew_retry_interval_seconds": interval,
+        },
+    })
 
 
 class FakeNotifier:
@@ -243,7 +243,7 @@ def test_deploy_failed_pending_skips_new_renew(monkeypatch):
     monkeypatch.setattr(renew_flow, "load_raw_config", lambda: cfg)
     monkeypatch.setattr(renew_flow, "resolve_renew_domain", lambda domain: "example.com")
     monkeypatch.setattr(renew_flow.store, "RenewStateStore", lambda: state)
-    monkeypatch.setattr(renew_flow.renew_flow if False else renew_flow, "renew_certificate", must_not_renew)
+    monkeypatch.setattr(renew_flow, "renew_certificate", must_not_renew)
     result = run(renew_flow.renew_and_plan_deploy("example.com", automatic=True))
     assert result["renew_status"] == "deploy_failed_pending"
     assert called == []
