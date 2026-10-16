@@ -5,6 +5,7 @@ import pytest
 
 from app.utils.acme_sh import (
     AcmeShConfigError,
+    AcmeShExecutionError,
     AcmeShInfoParseError,
     AcmeShNotFoundError,
     AcmeShRenewer,
