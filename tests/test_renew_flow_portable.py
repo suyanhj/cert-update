@@ -147,7 +147,7 @@ def test_success_apply_records_state_deploys_and_notifies(monkeypatch):
         calls.append(kwargs)
         return cert
     monkeypatch.setattr(renew_flow, "load_raw_config", lambda: cfg)
-    monkeypatch.setattr(renew_flow, "resolve_renew_domain", lambda domain: "example.com")
+    monkeypatch.setattr(renew_flow, "resolve_renew_domain", resolve_example)
     monkeypatch.setattr(renew_flow, "renew_certificate", fake_renew)
     monkeypatch.setattr(renew_flow.store, "RenewStateStore", lambda: state)
     monkeypatch.setattr(renew_flow.notifier, "DingDingNotifier", FakeNotifier)
