@@ -143,7 +143,7 @@ def test_huawei_deployer_prepare_and_deploy_matrix(monkeypatch):
     d._waf_certificate_prepared = False
     d._waf_certificate_id = None
     d._deploy_to_waf = lambda **kwargs: asyncio.sleep(0, result=True)
-    result = asyncio.run(d.deploy("CERT", "KEY", DeployTarget("huawei", "waf", product_id="h1", domain="a.example.com"))
+    result = asyncio.run(d.deploy("CERT", "KEY", DeployTarget("huawei", "waf", product_id="h1", domain="a.example.com")))
     assert result.success and result.cert_id == "w1"
     assert asyncio.run(d.deploy("CERT", "KEY", DeployTarget("huawei", "waf", product_id=""))).success is False
     d._waf_certificate_id = None; d._waf_certificate_prepared = True
