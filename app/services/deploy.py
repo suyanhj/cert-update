@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import asyncio
 import os
 from typing import Any, Dict, List, Optional, Set
 
@@ -28,6 +29,7 @@ from app.schemas.provider import (
 from app.services.bindings import BindingCacheService
 from app.services.provider_factory import build_cloud_providers, get_provider_builder_map
 from app.utils.domain_match import build_cert_domains, match_domain, normalize_domain
+from app.utils.certificate_deployment import prepare_certificate_for_deployment
 from app.utils.logger import get_logger
 from app.utils.notifier import DingDingNotifier
 from app.utils.store import ProductBindingStore, DeployStateStore
@@ -979,6 +981,8 @@ class DeployService:
             raise RuntimeError(f"当前 deploy.mode={deploy_mode}，该入口仅支持 apply")
 
         self._check_certificate_expiry(renewed_cert)
+        # 平台分发及腾讯云预上传前统一补链，所有目标复用同一份完整证书。
+        renewed_cert = await asyncio.to_thread(prepare_certificate_for_deployment, renewed_cert)
 
         providers, cert_domains, matches, skipped = await self._collect_matches(
             renewed_cert=renewed_cert,
