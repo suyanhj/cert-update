@@ -30,7 +30,7 @@ def test_deploy_service_static_helpers_and_nginx_auth():
     assert d._binding_cache_settings() == (True, 3600, True)
     d.conf.deploy.binding_cache = None
     assert d._binding_cache_settings() == (True, 3600, True)
-    d.conf.deploy.binding_cache = SimpleNamespace(enabled="", ttl_seconds=0, verify_before_apply="")
+    d.conf.deploy.binding_cache = SimpleNamespace(enabled="", ttl_seconds=-1, verify_before_apply="")
     with pytest.raises(ValueError):
         d._binding_cache_settings()
     d.conf.deploy.binding_cache = SimpleNamespace(enabled=False, ttl_seconds=10, verify_before_apply=False)
@@ -53,7 +53,7 @@ def test_deploy_service_static_helpers_and_nginx_auth():
         d._provider_type(SimpleNamespace(config=None, name="x"))
 
     assert d._summarize_matches([])["total_matches"] == 0
-    m = DeployMatchResult(provider_type="aliyun", provider_name="p", product_type="cdn", product_id="c1", domain="a.example.com", match_type="exact")
+    m = DeployMatchResult(provider_type="aliyun", provider_name="p", product_type="cdn", product_id="c1", domain="a.example.com", match_type="exact", current_cert_id=None)
     summary = d._summarize_matches([m, m])
     assert summary["by_provider"]["aliyun:p"] == 2
     bind_summary = d._summarize_bind_results([
