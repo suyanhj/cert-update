@@ -8,7 +8,8 @@ def get_certificate_policy(config, domain: str) -> CertificatePolicyConfig:
     """精确策略优先于单级通配；未配置时使用默认 ACME 策略。"""
     policies = config.get("certificate_policies", {})
     target = normalize_domain(domain)
-    raw = policies.get(target)
+    # default_box 对缺失键会返回空对象，必须先检查精确策略是否存在。
+    raw = policies[target] if target in policies else None
     if raw is None:
         for rule, candidate in policies.items():
             if match_domain({rule}, target):

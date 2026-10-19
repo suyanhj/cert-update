@@ -782,7 +782,13 @@ def test_apply_deploy_skips_verify_when_cache_disabled(monkeypatch):
     assert verify_calls["count"] == 0
 
 
-def test_apply_deploy_tencent_scans_after_upload_and_reuses_certificate(monkeypatch):
+@pytest.mark.parametrize("blacklist, expected_domains", [
+    ([], {"img.example.com", "outside.test", "eo.example.com"}),
+    (["img.example.com"], {"outside.test", "eo.example.com"}),
+    (["*.example.com"], {"outside.test"}),
+    (["*.example.com", "outside.test"], set()),
+])
+def test_apply_deploy_tencent_scans_after_upload_and_reuses_certificate(monkeypatch, blacklist, expected_domains):
     apply_config = Box(
         {
             "deploy": {
@@ -805,6 +811,7 @@ def test_apply_deploy_tencent_scans_after_upload_and_reuses_certificate(monkeypa
         },
         default_box=True,
     )
+    apply_config["blacklist"] = blacklist
     monkeypatch.setattr(deploy_service, "load_raw_config", lambda: apply_config)
 
     class FakeTencentProvider:
@@ -897,18 +904,16 @@ def test_apply_deploy_tencent_scans_after_upload_and_reuses_certificate(monkeypa
             },
         )
     ]
-    assert {item[0].product_type for item in deployer.deploy_calls} == {"oss", "live", "teo"}
-    assert {item[0].domain for item in deployer.deploy_calls} == {
-        "img.example.com",
-        "outside.test",
-        "eo.example.com",
-    }
+    assert {item[0].domain for item in deployer.deploy_calls} == expected_domains
+    assert all(item["reason"] == "blacklist" for item in result["skipped"])
+    assert len(result["skipped"]) == 3 - len(expected_domains)
     assert all(item[0].metadata["match_type"] == "ssl-domain-match" for item in deployer.deploy_calls)
     assert all(item[1] == "cert-new" for item in deployer.deploy_calls)
-    assert result["success_count"] == 3
+    assert result["success_count"] == len(expected_domains)
+    assert result["deploy_status"] == ("success" if expected_domains else "skipped")
 
 
-def test_apply_deploy_without_any_target_fails(monkeypatch):
+def test_apply_deploy_without_any_target_skips(monkeypatch):
     apply_config = Box(
         {
             "deploy": {
@@ -942,5 +947,7 @@ def test_apply_deploy_without_any_target_fails(monkeypatch):
     monkeypatch.setattr(deploy_service.DeployService, "_collect_matches", fake_collect_matches)
     monkeypatch.setattr(deploy_service.DeployService, "_apply_nginx_deploy", no_nginx)
 
-    with pytest.raises(RuntimeError, match="未发现可部署"):
-        asyncio.run(deploy_service.DeployService().apply_deploy(_renewed_cert()))
+    result = asyncio.run(deploy_service.DeployService().apply_deploy(_renewed_cert()))
+    assert result["deploy_status"] == "skipped"
+    assert result["reason"] == "no_targets"
+    assert result["success_count"] == result["failed_count"] == 0

@@ -429,6 +429,15 @@ class GlobalProductScanConfig(BaseModel):
     )
 
 
+class CACatalogCheckConfig(BaseModel):
+    """官方 CA 目录定期核对配置。"""
+
+    enabled: bool = True
+    interval_hours: int = Field(24, ge=1)
+    warn_days: int = Field(90, ge=0)
+    timeout_seconds: float = Field(20, gt=0, le=120)
+
+
 class AppConfig(BaseSettings):
     """应用配置入口，可通过 .env、环境变量或 YAML 填充。"""
 
@@ -515,6 +524,7 @@ class AppConfig(BaseSettings):
         description="是否启用自动续签编排（采集后按 auto_renew_days 阈值触发续签，并按 deploy.mode 执行 dry-run/apply）",
     )
     auto_renew_days: int = Field(20, description="证书剩余多少天时自动触发续签")
+    ca_catalog_check: CACatalogCheckConfig = Field(default_factory=CACatalogCheckConfig)
     check_interval_minutes: int = Field(10, description="轮询云平台的频率（分钟）")
     log_level: str = Field("info", description="全局日志级别：debug / info / warning / error")
     tls_scan_parallel: int = Field(10, gt=0, description="TLS 探测并发数")

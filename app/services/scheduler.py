@@ -1,6 +1,7 @@
 """定时采集调度：按间隔调用 collect_all。"""
 import asyncio
 from app.services.collector import collect_all
+from app.services.ca_catalog_check import check_ca_catalog_if_due
 from app.utils.logger import get_logger
 
 logger = get_logger("app")
@@ -36,6 +37,10 @@ def start_scheduler(interval: int = 60, run_immediately: bool = True):
                     # 单次失败继续下一轮，停止请求等待当前采集及部署完整结束。
                     logger.exception("collect_all failed, skip this round")
                 if not _stop_event.is_set():
+                    try:
+                        await check_ca_catalog_if_due()
+                    except Exception:
+                        logger.exception("官方 CA 目录检查失败，下一轮调度继续处理")
                     await _wait_interval()
         finally:
             logger.info("scheduler stopped")

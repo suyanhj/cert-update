@@ -543,8 +543,8 @@ async def renew_and_plan_deploy(
         })
         return failure_result
 
-    # 只有真实部署全部成功才进入冷却；预演不覆盖待人工处理等既有状态。
-    if deploy_mode == "apply":
+    # 只有真实部署全部成功才进入冷却；跳过和预演不覆盖既有状态。
+    if deploy_mode == "apply" and result.get("deploy_status") != "skipped":
         renew_state.record_success(
             domain=state_key,
             provider=str(provider_name or ""),
@@ -635,6 +635,10 @@ async def deploy_existing_only(
 
     result.setdefault("mode", deploy_mode)
     result.setdefault("deploy_status", "success" if deploy_mode == "apply" else "planned")
+    if result.get("deploy_status") == "skipped":
+        result.update(renew_status="skipped", retry_count=0)
+        LOGGER.info("仅部署跳过: domain=%s reason=%s", domain_key, result.get("reason"))
+        return result
     try:
         msg = format_deploy_notify_message(
             result if isinstance(result, dict) else None,

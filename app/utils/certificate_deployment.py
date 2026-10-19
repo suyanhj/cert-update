@@ -29,10 +29,12 @@ def _fingerprints(pem: bytes) -> list[bytes]:
 
 
 def _replace_with_backup(path: Path, original: bytes, updated: bytes) -> None:
-    """同目录备份后原子替换，覆盖前确认外部没有更新源文件。"""
+    """备份到证书目录的 bak 子目录后原子替换，覆盖前确认源文件未变。"""
     if path.read_bytes() != original:
         raise CertificateChainError(f"证书文件已发生变化，请重新加载后部署: {path}")
-    backup = path.with_name(f"{path.name}.chain-{uuid4().hex}.bak")
+    backup_dir = path.parent / "bak"
+    backup_dir.mkdir(exist_ok=True)
+    backup = backup_dir / f"{path.name}.chain-{uuid4().hex}.bak"
     shutil.copy2(path, backup)
     LOGGER.info("补链前已备份证书: path=%s backup=%s", path, backup)
     stat = path.stat()

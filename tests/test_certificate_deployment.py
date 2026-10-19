@@ -47,14 +47,18 @@ def test_updates_selected_file_once_and_reuses_complete_chain(local_certificate)
     assert len(chain._parse_pem(updated.ca_pem)) == expected - 1
     assert b"\r\n" in path.read_bytes()
     assert b"\n" not in path.read_bytes().replace(b"\r\n", b"")
-    backups = list(path.parent.glob("*.bak"))
+    assert not list(path.parent.glob("*.bak"))
+    backups = list((path.parent / "bak").glob("*.bak"))
     assert len(backups) == 1 and backups[0].read_bytes() == before
     modified = path.stat().st_mtime_ns
     calls.clear()
-    again = prep.prepare_certificate_for_deployment(updated)
+    # 模拟后续部署重新从磁盘加载完整证书，而非依赖上一轮内存对象。
+    reloaded = replace(cert, cert_pem=path.read_text(encoding="ascii"),
+                       fullchain_pem=path.read_text(encoding="ascii"))
+    again = prep.prepare_certificate_for_deployment(reloaded)
     assert again.fullchain_pem == updated.fullchain_pem
     assert path.stat().st_mtime_ns == modified
-    assert list(path.parent.glob("*.bak")) == backups
+    assert list((path.parent / "bak").glob("*.bak")) == backups
     assert not calls
 
 
@@ -73,7 +77,7 @@ def test_failure_preserves_source(local_certificate, monkeypatch, failure):
     with pytest.raises(chain.CertificateChainError):
         prep.prepare_certificate_for_deployment(cert)
     assert path.read_bytes() == original
-    assert not list(path.parent.glob("*.bak"))
+    assert not list((path.parent / "bak").glob("*.bak"))
 
 
 def test_external_change_during_validation_is_not_overwritten(local_certificate, monkeypatch):
@@ -98,13 +102,23 @@ def test_replace_failure_keeps_original_and_backup(local_certificate, monkeypatc
     with pytest.raises(chain.CertificateChainError):
         prep.prepare_certificate_for_deployment(cert)
     assert path.read_bytes() == original
-    assert len(list(path.parent.glob("*.bak"))) == 1
+    assert len(list((path.parent / "bak").glob("*.bak"))) == 1
     assert not list(path.parent.glob(".selected-fullchain.pem.*"))
 
 
 def test_other_ca_is_unchanged():
     cert = SimpleNamespace(issuer="Other CA", domain="example.com")
     assert prep.prepare_certificate_for_deployment(cert) is cert
+
+
+def test_backup_directory_failure_preserves_source(local_certificate):
+    cert, path, _ = local_certificate
+    original = path.read_bytes()
+    (path.parent / 'bak').write_text('已有同名文件', encoding='utf-8')
+    with pytest.raises(chain.CertificateChainError):
+        prep.prepare_certificate_for_deployment(cert)
+    assert path.read_bytes() == original
+    assert not list(path.parent.glob('*.bak'))
 
 
 def test_apply_prepares_once_before_any_platform(local_certificate, monkeypatch):

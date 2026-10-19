@@ -11,11 +11,11 @@
 ## Decisions
 
 - 顶层 certificate_policies 以域名为键，字段 source、auto_renew、dns_provider、fullchain_path、key_path；不在 static_domains 中再维护第二套策略。
-- 精确域名优先，其次 RFC 单级通配；普通域名不隐式继承到子域。默认 acme/auto_renew=true。manual 默认关闭自动续签，拒绝显式开启及 DNS 账号字段。
+- 精确策略通过键是否存在判断，避免运行时 default_box 对缺失键生成空对象而跳过通配匹配；测试使用生产配置转换函数。精确域名优先，其次 RFC 单级通配；普通域名不隐式继承到子域。默认 acme/auto_renew=true。manual 默认关闭自动续签，拒绝显式开启及 DNS 账号字段。
 - DNS 账号引用选择已有启用的 aliyun/tencent/cloudflare Provider；在签发 SAN 校验及凭据选择时生效，部署目标不使用 DNS 账号作为筛选条件。
 - 自动续签对请求域名及解析后的 Main_Domain 分别检查策略。共享证书要整体禁用自动续签时，应给 Main_Domain 配置开关。
 - 手动来源在编排层直接读取路径，绝不实例化 acme 客户端。使用 cryptography 验证完整链 PEM、叶证书时间、SAN 覆盖及公私钥匹配，返回现有 RenewedCert。
-- 证书池保留线上探测信息，增加来源/自动状态；手动配置未被探测的域名也显示占位行和仅部署入口，避免首次部署无入口。
+- 证书池仅展示已有线上探测记录，并按精确或通配策略附加来源及操作能力；策略键不生成独立占位行。
 - UI 手动来源隐藏签发/续签，后端也拦截。黑名单优先级最高。配置中心继续使用 YAML 编辑及现有热更新。
 
 ## Risks / Trade-offs

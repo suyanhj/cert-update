@@ -42,3 +42,21 @@
 #### Scenario: UI 及自动续签反馈
 - **WHEN** 操作因黑名单跳过
 - **THEN** UI 显示黑名单跳过提示，自动入口记录跳过日志
+
+### Requirement: 云产品部署目标黑名单
+系统 SHALL 在云产品计划及实际绑定前过滤黑名单目标，覆盖缓存匹配和腾讯 SSL 动态扫描；命中目标不执行绑定，允许的独立目标继续。共享资源或通配目标覆盖被禁止域名时 SHALL 跳过该资源并记录命中规则。
+
+#### Scenario: 共享证书发现两个产品
+- **WHEN** 从 test.example.com 发起部署，扫描同时发现 api.example.com，且 api.example.com 在黑名单
+- **THEN** 仅部署允许的独立目标，api.example.com 记录 reason=blacklist 且不调用绑定接口
+
+#### Scenario: 共享监听器
+- **WHEN** 更新范围包含黑名单域名，或无独立域名的监听器所用证书 SAN 覆盖黑名单
+- **THEN** 跳过共享资源，防止以其他域名间接更新
+
+### Requirement: 无部署目标正常跳过
+系统 SHALL 将无目标且无查询或执行失败的实际部署返回为 skipped/no_targets，包括全部目标被黑名单过滤的情况。仅部署入口 SHALL 不抛错、不发送部署结果通知、不记录部署成功；UI 使用普通跳过提示。实际查询、上传或绑定失败 MUST 继续按失败处理。
+
+#### Scenario: 全部目标被过滤或没有匹配
+- **WHEN** 实际部署没有可执行目标且无失败记录
+- **THEN** 返回 deploy_status=skipped 和 reason=no_targets，仅部署入口返回普通提示且不发送通知

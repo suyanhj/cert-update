@@ -8,9 +8,9 @@ apscheduler>=3.10
 PyYAML>=6.0
 cryptography>=50.0.2
 dnspython>=2.8,<3.0
-python-dotenv==1.2.1
+python-dotenv==1.2.4
 dingtalkchatbot>=1.5.7
-nicegui==3.9.0
+nicegui>=3.18.0
 # Cloud platform SDKs
 # Tencent Cloud
 tencentcloud-sdk-python-dnspod>=3.0
@@ -49,5 +49,4 @@ alibabacloud-oss-v2>=1.0.0
 # SSH deployment
 paramiko>=3.0
 python-box==7.3.2
-python-dotenv==1.2.1
 pytest>=8.0

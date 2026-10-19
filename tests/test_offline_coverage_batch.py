@@ -43,7 +43,7 @@ def test_provider_base_helpers_and_probe(monkeypatch):
                 raise RuntimeError("http down")
             return Resp(200)
     p.http_client = Http()
-    assert asyncio.run(p._request("example.com")) == "在工作"
+    assert asyncio.run(p._request("example.com")) == ("在工作", "")
     assert p.http_client.calls == ["http://example.com", "https://example.com"]
 
     cfg.check_extensions = False

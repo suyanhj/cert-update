@@ -5,12 +5,13 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
-from box import Box
+import yaml
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from pydantic import ValidationError
 
+from app.config import _to_box
 from app.schemas.config import AppConfig, CertificatePolicyConfig
 from app.services import collector, renew, renew_flow
 from app.utils.acme_sh import AcmeShRenewer
@@ -20,7 +21,7 @@ from app.utils.time import TimeUtil
 
 
 def _config(policies=None, **kwargs):
-    return Box(AppConfig(acme={}, certificate_policies=policies or {}, **kwargs).model_dump())
+    return _to_box(AppConfig(acme={}, certificate_policies=policies or {}, **kwargs).model_dump())
 
 
 def _manual_policy(tmp_path, *, sans=None, before=-1, after=30):
@@ -51,6 +52,43 @@ def test_policy_defaults_normalization_and_exact_precedence():
     assert get_certificate_policy(cfg, "deep.api.example.com").auto_renew is True
     assert get_certificate_policy(_config(), "other.com").source == "acme"
     assert get_certificate_policy(_config({"example.com": {"auto_renew": False}}), "www.example.com").auto_renew is True
+
+
+def test_runtime_wildcard_manual_policy_matches_ui_and_operation(tmp_path, monkeypatch):
+    from app import config
+    from app.ui.pages import _certificate_rows
+    from app.utils.certificate_policy import certificate_operation_skip
+
+    manual = _manual_policy(tmp_path)
+    path = tmp_path / 'config.yaml'
+    path.write_text(yaml.safe_dump({
+        'acme': {},
+        'certificate_policies': {
+            '*.example.com': manual,
+            'www.example.com': {'source': 'acme'},
+            'special.example.com': {},
+        },
+    }), encoding='utf-8')
+    monkeypatch.setattr(config, 'CONFIG_PATH', path)
+    monkeypatch.setattr(config, '_CONFIG_CACHE', None)
+    cfg = config.get_config(force_reload=True)
+    assert get_certificate_policy(cfg, 'api.example.com').fullchain_path == manual['fullchain_path']
+    assert get_certificate_policy(cfg, 'api.example.com').key_path == manual['key_path']
+    for name in ['www.example.com', 'special.example.com', 'example.com', 'deep.api.example.com']:
+        assert get_certificate_policy(cfg, name).source == 'acme'
+    assert 'api.example.com' not in cfg.certificate_policies
+    for automatic in [False, True]:
+        reason, _ = certificate_operation_skip(cfg, 'api.example.com', automatic=automatic)
+        assert reason == 'manual_certificate'
+
+    snapshot = [{'domain': 'api.example.com', 'days': 24, 'sans': ['*.example.com']}]
+    rows = {row['domain']: row for row in _certificate_rows(cfg, snapshot)}
+    assert rows['api.example.com']['certificate_source'] == 'manual'
+    assert rows['api.example.com']['certificate_policy_label'] == '手动证书 · 仅部署'
+    assert rows['api.example.com']['days'] == 24
+    assert set(rows) == {'api.example.com'}
+    assert _certificate_rows(cfg, []) == []
+    assert 'certificate_source' not in snapshot[0]
 
 
 @pytest.mark.parametrize("policies", [
@@ -242,14 +280,16 @@ def test_collector_skips_policies_but_processes_other_domains(monkeypatch, tmp_p
     assert execute.call_args.kwargs["domain"] == "other.com"
 
 
-def test_ui_keeps_manual_deploy_entry_without_probe_and_uses_current_policy(tmp_path):
+def test_ui_only_displays_probed_domains_with_current_policy(tmp_path):
     from app.ui.pages import _certificate_rows
 
     cfg = _config({"example.com": _manual_policy(tmp_path), "other.com": {"auto_renew": False}})
-    snapshot = [{"domain": "other.com", "days": 10}]
+    assert _certificate_rows(cfg, []) == []
+    snapshot = [{"domain": "example.com", "days": 24}, {"domain": "other.com", "days": 10}]
     rows = {row["domain"]: row for row in _certificate_rows(cfg, snapshot)}
     assert rows["example.com"]["certificate_source"] == "manual"
-    assert rows["example.com"]["exp"] == "未探测"
+    assert rows["example.com"]["days"] == 24
+    assert set(rows) == {"example.com", "other.com"}
     assert "已关闭" in rows["other.com"]["certificate_policy_label"]
     assert "certificate_source" not in snapshot[0]
     assert len(_certificate_rows(cfg, list(rows.values()))) == 2
@@ -317,7 +357,7 @@ def test_ui_renders_manual_source_with_only_deploy_action(monkeypatch, tmp_path)
         getattr(ui, name).side_effect = element
     monkeypatch.setattr(pages, "ui", ui)
     monkeypatch.setattr(pages, "get_config", lambda: cfg)
-    monkeypatch.setattr(pages.state, "CERT_LIST", [])
+    monkeypatch.setattr(pages.state, "CERT_LIST", [{"domain": "example.com", "days": 24}])
     monkeypatch.setattr(pages.state, "DOMAIN_GROUPS", [{
         "domain": "example.com", "name": "static", "expires_at": "unknown",
         "subs": [{"name": "www.example.com", "status": "在工作"}],

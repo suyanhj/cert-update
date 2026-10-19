@@ -70,13 +70,14 @@ def _default_issue_main_domain(managed_domain: str, selected_domain: str) -> str
     return selected_base.split(".", 1)[1]
 
 
+def _client_connected(client: Client) -> bool:
+    """异步业务结束后，只允许更新仍然存活且连接有效的原页面。"""
+    return not client.is_deleted and client.has_socket_connection
+
+
 def _notify_safe(client, message: str, **kwargs) -> None:
-    """
-    在 await 等耗时逻辑之后调用 ui.notify。
-    若 Client 已被回收（用户关闭/刷新页面），NiceGUI 会从 Client.instances 中
-    移除该 client.id，此时直接静默跳过，避免触发 "Client has been deleted" 告警。
-    """
-    if client.id not in Client.instances:
+    """跳过已销毁或断开的页面，业务结果仍由后台日志和状态保存。"""
+    if not _client_connected(client):
         return
     with client:
         ui.notify(message, **kwargs)
@@ -106,15 +107,8 @@ def _format_last_updated_shanghai(raw) -> str:
 
 
 def _certificate_rows(config, certificates: list[dict]) -> list[dict]:
-    """为探测结果附加当前策略，并为未探测的手动证书保留部署入口。"""
+    """仅为已有探测结果附加当前匹配策略，策略本身不生成证书行。"""
     rows = [dict(row) for row in certificates]
-    seen = {normalize_domain(row["domain"]) for row in rows}
-    for domain in config.get("certificate_policies", {}):
-        if domain not in seen and get_certificate_policy(config, domain).source == "manual":
-            rows.append({
-                "domain": domain, "key": "—", "sans": [], "ca": "—",
-                "exp": "未探测", "days": "未探测", "provider": "手动配置",
-            })
     for row in rows:
         policy = get_certificate_policy(config, row["domain"])
         row["certificate_source"] = policy.source
@@ -228,61 +222,65 @@ def render_certificates():
         retry_count = int(result.get("retry_count", 0) or 0)
         summary_text = format_provider_type_summary(result.get("summary"))
 
-        with client:
-            if renew_status == "skipped":
-                cooldown_days = result.get("cooldown_days")
-                tip = result.get("message") or (f"最近 {cooldown_days} 天内已成功续签，本次请求已跳过" if cooldown_days else "最近已成功续签，本次请求已跳过")
-                ui.notify(
-                    tip,
-                    type="info",
-                    position="top-right",
-                    timeout=8000,
-                    close_button=True,
-                )
-                return
+        if renew_status == "skipped":
+            cooldown_days = result.get("cooldown_days")
+            tip = result.get("message") or (f"最近 {cooldown_days} 天内已成功续签，本次请求已跳过" if cooldown_days else "最近已成功续签，本次请求已跳过")
+            _notify_safe(
+                client,
+                tip,
+                type="info",
+                position="top-right",
+                timeout=8000,
+                close_button=True,
+            )
+            return
 
-            if renew_status in ("deploy_failed", "deploy_failed_pending"):
-                error = result.get("error", "部署失败，等待人工处理")
-                action = "部署失败并已停止自动处理" if result.get("mode") == "apply" else "部署预演失败，尚未部署"
-                ui.notify(
-                    f"证书已续签，但{action}: {error}",
-                    type="negative",
-                    multi_line=True,
-                    position="top-right",
-                    timeout=12000,
-                    close_button=True,
-                )
-                return
+        if renew_status in ("deploy_failed", "deploy_failed_pending"):
+            error = result.get("error", "部署失败，等待人工处理")
+            action = "部署失败并已停止自动处理" if result.get("mode") == "apply" else "部署预演失败，尚未部署"
+            _notify_safe(
+                client,
+                f"证书已续签，但{action}: {error}",
+                type="negative",
+                multi_line=True,
+                position="top-right",
+                timeout=12000,
+                close_button=True,
+            )
+            return
 
-            if renew_status == "failed":
-                error = result.get("error", "续签失败")
-                ui.notify(
-                    f"续签失败（重试 {retry_count} 次）: {error}，详细原因请查看钉钉告警",
-                    type="negative",
-                    multi_line=True,
-                    position="top-right",
-                    timeout=12000,
-                    close_button=True,
-                )
-                return
+        if renew_status == "failed":
+            error = result.get("error", "续签失败")
+            _notify_safe(
+                client,
+                f"续签失败（重试 {retry_count} 次）: {error}，详细原因请查看钉钉告警",
+                type="negative",
+                multi_line=True,
+                position="top-right",
+                timeout=12000,
+                close_button=True,
+            )
+            return
 
-            # 续签成功场景，继续展示部署结果摘要
-            if result.get("mode") == "apply":
-                ui.notify(
-                    f"续签成功（重试 {retry_count} 次），apply 完成: success={result.get('success_count', 0)} failed={result.get('failed_count', 0)} | {summary_text}",
-                    type="positive",
-                    position="top-right",
-                    timeout=8000,
-                    close_button=True,
-                )
-                return
-            ui.notify(
-                f"续签成功（重试 {retry_count} 次），dry-run 计划生成完成（尚未部署）: 命中 {len(result.get('planned_bind_actions', []))} 个资源 | {summary_text}",
+        # 续签成功场景，继续展示部署结果摘要
+        if result.get("mode") == "apply":
+            _notify_safe(
+                client,
+                f"续签成功（重试 {retry_count} 次），apply 完成: success={result.get('success_count', 0)} failed={result.get('failed_count', 0)} | {summary_text}",
                 type="positive",
                 position="top-right",
                 timeout=8000,
                 close_button=True,
             )
+            return
+        _notify_safe(
+            client,
+            f"续签成功（重试 {retry_count} 次），dry-run 计划生成完成（尚未部署）: 命中 {len(result.get('planned_bind_actions', []))} 个资源 | {summary_text}",
+            type="positive",
+            position="top-right",
+            timeout=8000,
+            close_button=True,
+        )
 
     columns = [
         {'name': 'domain', 'label': '证书主域名', 'field': 'domain', 'align': 'left', 'sortable': True},
@@ -332,8 +330,8 @@ def render_certificates():
         cert_e = config.alert.cert.cert_expiry_days
         table.add_slot('body-cell-days', f'''
             <q-td :props="props" class="text-left">
-                <q-chip dense :color="props.row.days === '未探测' ? 'grey-2' : props.row.days <= {cert_w} ? 'red-1' : props.row.days <= {cert_e} ? 'orange-1' : 'green-1'"
-                        :text-color="props.row.days === '未探测' ? 'grey-7' : props.row.days <= {cert_w} ? 'red-7' : props.row.days <= {cert_e} ? 'orange-8' : 'green-8'"
+                <q-chip dense :color="props.row.days <= {cert_w} ? 'red-1' : props.row.days <= {cert_e} ? 'orange-1' : 'green-1'"
+                        :text-color="props.row.days <= {cert_w} ? 'red-7' : props.row.days <= {cert_e} ? 'orange-8' : 'green-8'"
                         class="px-3 py-1 text-sm font-medium tracking-wide">
                     {{{{ props.row.days }}}}
                 </q-chip>
@@ -545,8 +543,12 @@ def render_domains():
                                 icon = 'remove_circle_outline'
                             
                             with ui.element('div').classes('flex items-center gap-1.5'):
-                                ui.icon(icon, size='14px').classes(status_class.split()[0])
-                                ui.label(status_str).classes(f'text-xs px-2 py-0.5 rounded-md border inline-block {status_class}')
+                                status_icon = ui.icon(icon, size='14px').classes(status_class.split()[0])
+                                status_label = ui.label(status_str).classes(f'text-xs px-2 py-0.5 rounded-md border inline-block {status_class}')
+                                if sub.get('status_reason') or icon == 'error_outline':
+                                    reason = sub.get('status_reason') or '暂无详细原因，请重新扫描获取探测结果'
+                                    status_icon.tooltip(reason)
+                                    status_label.tooltip(reason)
                             
                             ui.label(sub.get('remark', '')).classes('text-gray-500 text-sm truncate')
                             
@@ -596,8 +598,8 @@ def build_ui():
             _notify_safe(client, "手动采集失败: %s" % exc, type="negative", multi_line=True)
             return
         _notify_safe(client, "手动采集完成，正在刷新页面", type="positive")
-        if client.id in Client.instances:
-            await client.run_javascript("window.location.reload()")
+        if _client_connected(client):
+            client.run_javascript("window.location.reload()")
 
     # 改为屏幕的极致宽度，充分利用横向空间
     with ui.column().classes('w-full max-w-screen-2xl mx-auto py-8 px-4 sm:px-6 lg:px-8'):
@@ -648,12 +650,16 @@ def build_config_ui():
             try:
                 await apply_config_text(editor.value or "")
             except Exception as exc:
+                if not _client_connected(client):
+                    return
                 detail = str(exc)
                 status_label.set_text("状态：保存失败")
                 error_label.set_text(detail)
                 _notify_safe(client, "配置保存失败，请按错误提示修改", type="negative", multi_line=True)
                 return
 
+            if not _client_connected(client):
+                return
             editor.value = _load_config_text()
             status_label.set_text("状态：保存成功，配置已热生效（采集需手动触发或等待调度）")
             _notify_safe(client, "配置保存成功，已热生效", type="positive")

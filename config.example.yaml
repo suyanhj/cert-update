@@ -280,3 +280,10 @@ http_scan_parallel: 10          # HTTP / DNS 子域探测并发数
 tls_timeout_seconds: 5          # TLS 探测超时时间（秒）
 http_timeout_seconds: 2         # HTTP 探测超时时间（秒）
 log_level: info                 # 全局日志级别：debug / info / warning / error
+
+# 定期核对已有 CA 的官方证书，不自动改写本地信任目录
+ca_catalog_check:
+  enabled: true
+  interval_hours: 24
+  warn_days: 90
+  timeout_seconds: 20

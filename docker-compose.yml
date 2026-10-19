@@ -9,7 +9,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - ./conf:/app/conf
       - ./data:/app/data
       - ./logs:/app/logs
       - ./ssh:/app/ssh
@@ -17,3 +17,4 @@ services:
       - /etc/nginx:/etc/nginx
     environment:
       - TZ=Asia/Shanghai
+    command: ["python", "main.py", "--config", "/app/conf/config.yaml"]
