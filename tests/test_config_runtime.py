@@ -142,6 +142,7 @@ def test_http_fetch_reads_timeout_from_runtime_config(monkeypatch: pytest.Monkey
     class DummyAsyncClient:
         def __init__(self, timeout=None, follow_redirects=True, headers=None):
             captured["timeout"] = timeout
+            captured["headers"] = headers
 
         async def __aenter__(self):
             return self
@@ -163,6 +164,8 @@ def test_http_fetch_reads_timeout_from_runtime_config(monkeypatch: pytest.Monkey
 
     assert response.status_code == 200
     assert captured["timeout"] == 7
+    assert captured["headers"]["User-Agent"].startswith("Mozilla/5.0")
+    assert "Chrome/" in captured["headers"]["User-Agent"]
 
 
 # ---------- config_runtime.parse_config_text / validate_config_dict ----------

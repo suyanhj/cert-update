@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from box import Box
@@ -402,6 +402,32 @@ def test_deploy_existing_only_apply_success_sends_deploy_summary(monkeypatch: py
     assert body_lines[1] == "部署目标:"
     assert "  奇裕 阿里云 cdn" in body_lines
     assert "  nginx 组 test" in body_lines
+
+
+def test_deploy_existing_only_no_targets_skips_without_notification_or_success(monkeypatch):
+    from app.services import renew_flow
+
+    cfg = _make_config(mode="apply")
+    monkeypatch.setattr(renew_flow, "load_raw_config", lambda: cfg)
+    monkeypatch.setattr(renew_flow, "resolve_renew_domain", AsyncMock(side_effect=lambda d: d))
+    monkeypatch.setattr(renew_flow, "load_existing_certificate", AsyncMock(return_value=_make_renewed_cert()))
+    service = Mock()
+    service.apply_deploy = AsyncMock(return_value={
+        "mode": "apply", "deploy_status": "skipped", "reason": "no_targets",
+        "message": "未发现可部署的证书目标，已跳过",
+        "success_count": 0, "failed_count": 0,
+    })
+    monkeypatch.setattr(renew_flow, "DeployService", lambda: service)
+    dd = Mock()
+    dd.notify_deploy_summary = AsyncMock()
+    monkeypatch.setattr(renew_flow.notifier, "DingDingNotifier", lambda: dd)
+    state = Mock()
+    monkeypatch.setattr(renew_flow.store, "RenewStateStore", lambda: state)
+    result = asyncio.run(renew_flow.deploy_existing_only("test.example.com"))
+    assert result["renew_status"] == result["deploy_status"] == "skipped"
+    assert result["reason"] == "no_targets"
+    dd.notify_deploy_summary.assert_not_awaited()
+    state.record_success.assert_not_called()
 
 
 def test_deploy_existing_only_apply_failure_notifies_and_reraises(monkeypatch: pytest.MonkeyPatch):

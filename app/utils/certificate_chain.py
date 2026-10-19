@@ -119,7 +119,7 @@ def _download_ca(client: httpx.Client, name: str, timeout: float) -> x509.Certif
     if not url.startswith(("https://letsencrypt.org/certs/",
                            "https://secure.sectigo.com/products/download/cacert/")):
         raise CertificateChainError(f"CA 目录包含非官方地址: {name}")
-    LOGGER.info("下载缺失官方 CA: ca=%s url=%s", name, url)
+    LOGGER.info("下载官方 CA: ca=%s url=%s", name, url)
     try:
         with client.stream("GET", url, timeout=timeout, follow_redirects=False) as response:
             response.raise_for_status()

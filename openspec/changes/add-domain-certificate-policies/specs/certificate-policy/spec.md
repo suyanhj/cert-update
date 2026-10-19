@@ -11,6 +11,10 @@
 - **WHEN** 域名未匹配策略，或多级子域仅存在不覆盖它的通配规则
 - **THEN** 保持默认 acme 行为，不继承父域策略
 
+#### Scenario: 运行时通配手动策略
+- **WHEN** 已加载的配置仅对 '*.example.com' 设置 manual 来源，探测到 api.example.com
+- **THEN** UI 与后端统一使用通配策略对应的手动文件，禁止该域名签发和续签；精确策略存在时仍优先使用精确策略
+
 ### Requirement: 自动续签开关独立于手动操作
 系统 SHALL 在自动流程对请求域名及实际证书主域名检查 auto_renew，关闭后跳过续签且记录原因，手动签发、续签和仅部署仍允许。manual 来源 MUST 跳过所有签发和续签。
 
@@ -37,8 +41,12 @@ acme 来源 SHALL 允许引用已有启用的受支持 DNS Provider 进行签发
 - **THEN** acme 使用该账号的标准凭据映射，部署目标仍遵守原部署范围
 
 ### Requirement: UI 显示操作能力
-UI SHALL 显示证书来源和自动续签状态；manual 来源隐藏签发和续签并提供仅部署入口，即使没有线上 TLS 探测结果也能操作。
+UI SHALL 仅对已有探测记录展示匹配策略的证书来源和自动续签状态；manual 来源隐藏签发和续签并提供仅部署入口。策略键 MUST NOT 生成额外证书行。
 
-#### Scenario: 手动证书首次部署
-- **WHEN** manual 域名没有证书探测记录
-- **THEN** UI 仍显示该配置及仅部署入口，部署时重新读取并校验文件
+#### Scenario: 通配策略应用于探测域名
+- **WHEN** 配置 '*.example.com' 为 manual 且探测到 api.example.com
+- **THEN** api.example.com 显示手动证书及仅部署入口，不额外显示通配规则行
+
+#### Scenario: 策略域名没有探测记录
+- **WHEN** 配置了精确或通配 manual 策略但没有对应探测记录
+- **THEN** 不生成配置占位行

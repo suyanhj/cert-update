@@ -28,7 +28,7 @@ from app.schemas.provider import (
 )
 from app.services.bindings import BindingCacheService
 from app.services.provider_factory import build_cloud_providers, get_provider_builder_map
-from app.utils.domain_match import build_cert_domains, match_domain, normalize_domain
+from app.utils.domain_match import build_cert_domains, find_blacklisted_domain, match_domain, normalize_domain
 from app.utils.certificate_deployment import prepare_certificate_for_deployment
 from app.utils.logger import get_logger
 from app.utils.notifier import DingDingNotifier
@@ -665,6 +665,47 @@ class DeployService:
             "by_product_type": by_product_type,
         }
 
+    def _filter_blacklisted_matches(
+        self, matches: List[DeployMatchResult], cert_domains: Set[str],
+        skipped: List[Dict[str, str]],
+    ) -> List[DeployMatchResult]:
+        """逐目标检查黑名单；同一共享资源命中时整组跳过，避免间接更新。"""
+        blacklist = list(getattr(self.conf, "blacklist", []) or [])
+        if not blacklist:
+            return matches
+
+        def resource_key(match):
+            return (match.provider_type, match.provider_name, match.product_type,
+                    match.product_id, match.listener_port)
+
+        blocked = {}
+        for match in matches:
+            # 无独立域名的监听器更新会影响共享证书覆盖范围，按全部 SAN 保守检查。
+            domains = cert_domains if (match.metadata or {}).get("listener_scope") else {match.domain}
+            domains = {normalize_domain(domain) for domain in domains if domain}
+            for rule in blacklist:
+                # 通配目标同样不能覆盖黑名单中的精确域名。
+                if (find_blacklisted_domain(domains, [rule]) or
+                        any(match_domain({domain}, rule) for domain in domains)):
+                    blocked[resource_key(match)] = rule
+                    break
+
+        allowed = []
+        for match in matches:
+            rule = blocked.get(resource_key(match))
+            if rule is None:
+                allowed.append(match)
+                continue
+            skipped.append({
+                "provider_type": match.provider_type, "provider": match.provider_name,
+                "product_type": match.product_type, "product_id": match.product_id,
+                "domain": match.domain, "status": "skipped", "reason": "blacklist",
+                "matched_domain": rule, "message": f"部署目标或共享资源命中黑名单: {rule}",
+            })
+            LOGGER.info("部署目标跳过: provider=%s product=%s/%s domain=%s blacklist=%s",
+                        match.provider_name, match.product_type, match.product_id, match.domain, rule)
+        return allowed
+
     async def _collect_matches(
         self,
         renewed_cert: RenewedCert,
@@ -765,7 +806,8 @@ class DeployService:
                 if match_priority.get(candidate.match_type, 0) > match_priority.get(current.match_type, 0):
                     deduped_matches[dedupe_key] = candidate
 
-        return providers, cert_domains, list(deduped_matches.values()), skipped
+        matches = self._filter_blacklisted_matches(list(deduped_matches.values()), cert_domains, skipped)
+        return providers, cert_domains, matches, skipped
 
     async def plan_dry_run(
         self,
@@ -1053,6 +1095,8 @@ class DeployService:
             skipped=skipped,
         )
 
+        # 腾讯 SSL 扫描和实时校验可能新增目标，执行平台部署前再次统一过滤。
+        matches = self._filter_blacklisted_matches(matches, cert_domains, skipped)
         provider_map = {self._provider_cache_key(p): p for p in providers}
         deploy_state = DeployStateStore()
 
@@ -1227,9 +1271,6 @@ class DeployService:
             )
         bind_results.extend(nginx_bind_results)
 
-        if not bind_results:
-            raise RuntimeError("未发现可部署的证书目标")
-
         failed = [item for item in bind_results if item.get("status") == "failed"]
         success_count = sum(item.get("status") == "success" for item in bind_results)
         deploy_status = "partial_failed" if failed and success_count else "failed" if failed else "success"
@@ -1249,6 +1290,11 @@ class DeployService:
             "success_count": success_count,
             "nginx_target_count": len(nginx_bind_results),
         }
+        if not bind_results:
+            result.update(deploy_status="skipped", reason="no_targets",
+                          message="未发现可部署的证书目标，已跳过")
+            LOGGER.info("证书部署跳过: domain=%s reason=no_targets skipped=%d",
+                        renewed_cert.domain, len(skipped))
         if failed:
             LOGGER.warning("证书部署完成但存在 %d 个目标失败", len(failed))
             raise DeploymentError(result)

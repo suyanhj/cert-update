@@ -156,20 +156,32 @@ class Provider(ABC):
 
         return default
 
-    async def _request(self, domain):
+    async def _request(self, domain: str) -> tuple[str, str]:
+        """探测可达性，保留各协议的失败原因供页面展示。"""
+        failures = []
         for scheme in ("http", "https"):
             try:
                 resp = await self.http_client.fetch(url=f"{scheme}://{domain}")
-            except Exception as e:
-                self.logger.debug("Probe %s %s failed: %s", scheme, domain, e)
-                if scheme == "http":
-                    continue
-                return "异常"
-            if resp.status_code < 500:
-                return "在工作"
-            if scheme == "http":
+            except Exception as exc:
+                detail = " ".join(str(exc).split())[:200]
+                reason = type(exc).__name__
+                if detail:
+                    reason += f"（{detail}）"
+                failures.append(f"{scheme.upper()}：{reason}")
+                self.logger.debug("Probe %s %s failed: %s", scheme, domain, exc)
                 continue
-            return "异常"
+            # 按当前 WAF 约定，567 表示请求被拦截，但服务器仍然可达。
+            if resp.status_code == 567:
+                reason = f"{scheme.upper()}：WAF 拦截（HTTP 567），服务器可响应"
+                self.logger.debug("域名探测命中 WAF %s: %s", domain, reason)
+                return "在工作", reason
+            if resp.status_code < 500:
+                return "在工作", ""
+            failures.append(f"{scheme.upper()}：HTTP {resp.status_code}")
+
+        reason = "；".join(failures)
+        self.logger.debug("域名可达性探测失败 %s: %s", domain, reason)
+        return "异常", reason
 
     def _full_domain(self, main_domain: str, sub_domain: str) -> str:
         """根据主域与子域拼出完整域名。"""
@@ -195,13 +207,14 @@ class Provider(ABC):
             is_wildcard = resolved.startswith("*.")
             if is_wildcard and not self.config.check_extensions:
                 self.logger.debug("跳过通配符域名: %s", resolved)
-                status = "通配符跳过"
+                status, reason = "通配符跳过", ""
             else:
-                status = await self._request(resolved)
+                status, reason = await self._request(resolved)
 
             return {
                 "name": domain,
                 "status": status,
+                "status_reason": reason,
                 "remark": remark,
             }
 

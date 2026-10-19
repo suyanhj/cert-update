@@ -4,13 +4,20 @@ from pathlib import Path
 
 import pytest
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes
 
 from app.utils import certificate_chain as module
 
 
 LEAF_FIXTURE = Path(__file__).parent / "fixtures" / "zerossl_nczx2025.pem"
 HOSTNAME = "nczx2025.com"
+VERIFICATION_TIME = datetime(2026, 10, 16, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def fixed_verification_time(monkeypatch):
+    """仅固定样本回归使用历史验证时间，生产验证仍使用当前时间。"""
+    builder = module.PolicyBuilder
+    monkeypatch.setattr(module, "PolicyBuilder", lambda: builder().time(VERIFICATION_TIME))
 
 
 def _names(certificates):
@@ -20,7 +27,7 @@ def _names(certificates):
     ]
 
 
-def test_supplied_zerossl_leaf_fixture_is_current_and_exact():
+def test_supplied_zerossl_leaf_fixture_is_valid_at_reference_time():
     certificates = x509.load_pem_x509_certificates(LEAF_FIXTURE.read_bytes())
     assert len(certificates) == 1
 
@@ -32,7 +39,7 @@ def test_supplied_zerossl_leaf_fixture_is_current_and_exact():
     assert leaf.issuer.get_attributes_for_oid(x509.NameOID.ORGANIZATION_NAME)[0].value == (
         "ZeroSSL GmbH"
     )
-    assert leaf.not_valid_after_utc > datetime.now(timezone.utc)
+    assert leaf.not_valid_before_utc <= VERIFICATION_TIME < leaf.not_valid_after_utc
     assert HOSTNAME in leaf.extensions.get_extension_for_class(
         x509.SubjectAlternativeName
     ).value.get_values_for_type(x509.DNSName)
@@ -99,7 +106,7 @@ def test_zerossl_path_matrix(issuer, expected):
 
 
 @pytest.mark.integration
-def test_current_zerossl_chain_completion_from_supplied_leaf():
+def test_zerossl_chain_completion_from_supplied_leaf(fixed_verification_time):
     result = module.complete_certificate_chain(
         LEAF_FIXTURE.read_bytes(),
         hostname=HOSTNAME,
@@ -127,7 +134,7 @@ def test_current_zerossl_chain_completion_from_supplied_leaf():
 
 
 @pytest.mark.integration
-def test_current_zerossl_completed_chain_is_idempotent():
+def test_zerossl_completed_chain_is_idempotent(fixed_verification_time):
     first = module.complete_certificate_chain(
         LEAF_FIXTURE.read_bytes(),
         hostname=HOSTNAME,

@@ -137,3 +137,15 @@ def test_resolve_acme_sh_path_rejects_missing_explicit_path(tmp_path):
     r._config = Box({"acme": {"acme_sh_path": str(tmp_path / "missing" / "acme.sh")}, "staging": {"enabled": False}})
     with pytest.raises(AcmeShNotFoundError):
         r._resolve_acme_sh_path()
+
+
+@pytest.mark.parametrize("configured_path", ["acme.sh", "./acme.sh"])
+def test_resolve_local_acme_sh_returns_absolute_path(monkeypatch, tmp_path, configured_path):
+    """PATH 无命令时，本地脚本必须返回绝对路径，避免再次搜索 PATH。"""
+    script = tmp_path / "acme.sh"
+    script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("app.utils.acme_sh.shutil.which", lambda name: None)
+    r = object.__new__(AcmeShRenewer)
+    r._config = Box({"acme": {"acme_sh_path": configured_path}, "staging": {"enabled": False}})
+    assert r._resolve_acme_sh_path() == str(script.resolve())

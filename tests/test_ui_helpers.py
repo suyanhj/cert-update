@@ -54,7 +54,7 @@ def test_load_config_text_missing(monkeypatch, tmp_path):
         pages._load_config_text()
 
 
-def test_certificate_rows_adds_manual_and_labels(monkeypatch):
+def test_certificate_rows_only_labels_probed_domains(monkeypatch):
     class Policy:
         def __init__(self, source="acme", auto_renew=True):
             self.source = source
@@ -76,9 +76,11 @@ def test_certificate_rows_adds_manual_and_labels(monkeypatch):
         [
             {"domain": "acme.example.com", "days": 30},
             {"domain": "off.example.com", "days": 10},
+            {"domain": "manual.example.com", "days": 20},
         ],
     )
-    assert any(row["domain"] == "manual.example.com" and row["days"] == "未探测" for row in rows)
+    assert len(rows) == 3
+    assert pages._certificate_rows(cfg, []) == []
     labels = {row["domain"]: row["certificate_policy_label"] for row in rows}
     assert labels["manual.example.com"] == "手动证书 · 仅部署"
     assert labels["off.example.com"] == "ACME · 自动续签已关闭"
@@ -86,12 +88,8 @@ def test_certificate_rows_adds_manual_and_labels(monkeypatch):
 
 def test_notify_safe_skips_deleted_client(monkeypatch):
     class FakeClient:
-        id = "gone"
-
-    class Instances:
-        pass
-
-    monkeypatch.setattr(pages.Client, "instances", {})
+        is_deleted = True
+        has_socket_connection = False
     calls = []
     monkeypatch.setattr(pages.ui, "notify", lambda *args, **kwargs: calls.append(args))
     pages._notify_safe(FakeClient(), "message")

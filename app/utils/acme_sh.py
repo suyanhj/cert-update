@@ -812,14 +812,14 @@ class AcmeShRenewer(BaseAcmeRenewer):
                 return command
             # PATH 中没有时，再允许它作为当前目录下的显式文件路径。
             if path.exists():
-                return str(path)
+                return str(path.resolve())
             LOGGER.error("acme.sh command not found: %s", raw_path)
             raise AcmeShNotFoundError(f"acme.sh 命令不存在: {raw_path}")
 
         if not path.exists():
             LOGGER.error("acme.sh path not found: %s", path)
             raise AcmeShNotFoundError(f"acme.sh 路径不存在: {path}")
-        return str(path)
+        return str(path.resolve())
 
     def _build_provider_env(self, provider_name: str) -> Dict[str, str]:
         """按云平台类型构建 acme.sh 执行环境变量。"""

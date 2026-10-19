@@ -31,6 +31,8 @@ class FakeUI:
 
 
 def test_render_dashboard_and_config_with_offline_fake_ui(monkeypatch, tmp_path):
+    tooltips = []
+    monkeypatch.setattr(Dummy, "tooltip", lambda self, text: tooltips.append(text) or self, raising=False)
     monkeypatch.setattr(pages, "ui", FakeUI())
     monkeypatch.setattr(pages, "get_config", lambda: Box({
         "auto_renew_enabled": True,
@@ -56,7 +58,9 @@ def test_render_dashboard_and_config_with_offline_fake_ui(monkeypatch, tmp_path)
             "dns_provider": "d", "dns_name": "D",
             "subs": [
                 {"name": "www.example.com", "status": "在工作", "remark": ""},
-                {"name": "bad.example.com", "status": "异常", "remark": "bad"},
+                {"name": "waf.example.com", "status": "在工作", "status_reason": "HTTPS：WAF 拦截（HTTP 567），服务器可响应", "remark": ""},
+                {"name": "bad.example.com", "status": "异常", "status_reason": "HTTP：HTTP 502；HTTPS：ReadTimeout", "remark": "bad"},
+                {"name": "legacy.example.com", "status": "异常", "remark": ""},
                 {"name": "x.example.com", "status": "unknown", "remark": ""},
             ],
         }],
@@ -64,6 +68,9 @@ def test_render_dashboard_and_config_with_offline_fake_ui(monkeypatch, tmp_path)
     })())
     pages.render_certificates()
     pages.render_domains()
+    assert tooltips.count("HTTPS：WAF 拦截（HTTP 567），服务器可响应") == 2
+    assert tooltips.count("HTTP：HTTP 502；HTTPS：ReadTimeout") == 2
+    assert tooltips.count("暂无详细原因，请重新扫描获取探测结果") == 2
     pages.build_ui()
     pages.build_config_ui()
 
