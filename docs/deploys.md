@@ -46,7 +46,7 @@
 部署阶段（仅 apply）：
 - `verify_before_apply=true` 时，按 provider 分组做一次实时拉取校验，避免脏缓存导致误下发。
 - 校验是“每个 provider 扫一次”，不是每个证书或每个目标各扫一次。
-- 腾讯云会先上传证书，再以证书 ID 调用 SSL Host 接口匹配 CDN、云直播、CLB、COS；SSL 返回的同一目标优先走 SSL 下发。未被 SSL 扫描覆盖的旧 CDN `modify` 目标继续走 `ModifyDomainConfig`，不会被整体删除。
+- 腾讯云会先上传证书，回查并确认返回 ID 的证书链与本地完整链一致后，再以该 ID 调用 SSL Host 接口匹配 CDN、云直播、CLB、COS；SSL 返回的同一目标优先走 SSL 下发。未被 SSL 扫描覆盖的旧 CDN `modify` 目标继续走 `ModifyDomainConfig`，不会被整体删除。
 
 缓存结构：`data/product_bindings_cache.json` 使用 `provider_type:provider_name` 作为 key，保存 `updated_at` 与 `products`。
 
@@ -100,7 +100,7 @@ WAF 使用独立证书仓库：同次部署只创建一张 WAF 证书，再通�
 
 ### 9.3 腾讯云
 
-实现了 `upload_certificate()`，上传到 SSL 证书服务并复用 `cert_id`（`Repeatable=false`，重复证书用 `RepeatCertId`）。
+实现了 `upload_certificate()`，上传到 SSL 证书服务并复用 `cert_id`。首次上传使用 `Repeatable=false`；上传后必须有 `DescribeCertificateDetail` 查询权限，部署器会组合 `CertificatePublicKey` 与 `RootCert.Standard`，按证书数量及 SHA-256 指纹集合对比本地完整链。若腾讯复用的旧 ID 缺链或链不同，部署器会以 `Repeatable=true` 强制重传一次，并只在第二个 ID 的证书链验证通过后继续。详情查询失败、远程 PEM 无效、强制重传后仍不一致时，立即终止 SSL Host 扫描和后续部署；不会循环重试。
 
 CDN 支持两种下发，由绑定 `metadata.cdn_deploy_mode` 决定：
 - `ssl`（新扫描默认）：SSL `DeployCertificateInstance`，实例 `<domain>|<https_billing>`；缺 `https_billing` 时按 `on`。

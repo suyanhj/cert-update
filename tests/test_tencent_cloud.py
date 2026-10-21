@@ -5,12 +5,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 import yaml
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 from qcloud_cos import CosServiceError
 
 import app.deploys.tencent as tencent_deploy_mod
@@ -26,6 +30,24 @@ class _FixedTime:
     @staticmethod
     def now():
         return datetime(2026, 3, 16, 12, 34, 56)
+
+
+def _certificate_pem(common_name: str) -> str:
+    """生成用于证书链指纹校验的有效测试证书。"""
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
+    now = datetime.now(timezone.utc)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(private_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=1))
+        .not_valid_after(now + timedelta(days=1))
+        .sign(private_key, hashes.SHA256())
+    )
+    return certificate.public_bytes(serialization.Encoding.PEM).decode("ascii")
 
 
 def _provider_config() -> ProviderConfig:
@@ -1017,6 +1039,11 @@ class FakeSsl:
         cos_instances=None,
         live_instances=None,
         teo_instances=None,
+        certificate_public_key="",
+        root_certificate="",
+        certificate_detail_error=None,
+        upload_responses=None,
+        certificate_details=None,
     ):
         self.cert_id = cert_id
         self.repeat_id = repeat_id
@@ -1027,7 +1054,13 @@ class FakeSsl:
             for key, value in (deploy_details or {}).items()
         }
         self.default_deploy_detail = default_deploy_detail
+        self.certificate_public_key = certificate_public_key
+        self.root_certificate = root_certificate
+        self.certificate_detail_error = certificate_detail_error
+        self.upload_responses = list(upload_responses or [])
+        self.certificate_details = list(certificate_details or [])
         self.upload_calls = []
+        self.detail_calls = []
         self.deploy_calls = []
         self.deploy_detail_calls = []
         self.cdn_calls = []
@@ -1043,7 +1076,25 @@ class FakeSsl:
 
     def UploadCertificate(self, req):
         self.upload_calls.append(req)
-        return SimpleNamespace(CertificateId=self.cert_id, RepeatCertId=self.repeat_id)
+        if self.upload_responses:
+            return self.upload_responses.pop(0)
+        return SimpleNamespace(
+            CertificateId=self.cert_id,
+            RepeatCertId=self.repeat_id,
+            RequestId="upload-request-1",
+        )
+
+    def DescribeCertificateDetail(self, req):
+        self.detail_calls.append(req)
+        if self.certificate_detail_error is not None:
+            raise self.certificate_detail_error
+        if self.certificate_details:
+            return self.certificate_details.pop(0)
+        return SimpleNamespace(
+            CertificatePublicKey=self.certificate_public_key,
+            RootCert=SimpleNamespace(Standard=self.root_certificate),
+            RequestId="detail-request-1",
+        )
 
     def DeployCertificateInstance(self, req):
         if not req.CertificateId or not req.InstanceIdList or not req.ResourceType:
@@ -1272,21 +1323,214 @@ def test_tencent_deploy_teo_reports_ssl_failure(monkeypatch):
     assert "teo deploy failed" in result.message
 
 
-def test_tencent_upload_certificate_reuses_id_and_repeat(monkeypatch):
+def test_tencent_upload_certificate_verifies_new_and_repeat_id(monkeypatch):
     monkeypatch.setattr(tencent_deploy_mod.TimeUtil, "now", staticmethod(_FixedTime.now))
-    ssl = FakeSsl(cert_id="cert-1")
+    log_messages: list[str] = []
+    monkeypatch.setattr(
+        tencent_deploy_mod.LOGGER,
+        "info",
+        lambda message, *args: log_messages.append(message % args),
+    )
+    leaf_pem = _certificate_pem("api.example.com")
+    root_pem = _certificate_pem("Test Root CA")
+    local_chain = leaf_pem + root_pem
+    ssl = FakeSsl(
+        cert_id="cert-1",
+        certificate_public_key=leaf_pem,
+        root_certificate=root_pem,
+    )
     _patch_clients(monkeypatch, ssl=ssl)
     deployer = TencentDeployer(secret_id="a", secret_key="b")
-    cert_id = asyncio.run(deployer.upload_certificate("CERT", "KEY", main_domain="api.example.com"))
+    cert_id = asyncio.run(
+        deployer.upload_certificate(local_chain, "KEY", main_domain="api.example.com")
+    )
     assert cert_id == "cert-1"
     assert ssl.upload_calls[0].Alias == "api.example.com-20260316123456"
     assert ssl.upload_calls[0].Repeatable is False
+    assert ssl.detail_calls[0].CertificateId == "cert-1"
 
-    ssl2 = FakeSsl(cert_id="", repeat_id="cert-old")
+    ssl2 = FakeSsl(
+        cert_id="cert-old",
+        repeat_id="cert-old",
+        certificate_public_key=root_pem + leaf_pem,
+    )
     _patch_clients(monkeypatch, ssl=ssl2)
     deployer2 = TencentDeployer(secret_id="a", secret_key="b")
-    assert asyncio.run(deployer2.upload_certificate("CERT", "KEY", main_domain=None)) == "cert-old"
+    assert (
+        asyncio.run(deployer2.upload_certificate(local_chain, "KEY", main_domain=None))
+        == "cert-old"
+    )
     assert ssl2.upload_calls[0].Alias == "renew-20260316123456"
+    assert ssl2.detail_calls[0].CertificateId == "cert-old"
+    combined_logs = "\n".join(log_messages)
+    assert "cert-old" in combined_logs
+    assert "upload-request-1" in combined_logs
+    assert "detail-request-1" in combined_logs
+    assert "BEGIN CERTIFICATE" not in combined_logs
+    assert "KEY" not in combined_logs
+
+
+def test_tencent_deploy_continues_after_uploaded_chain_matches(monkeypatch):
+    leaf_pem = _certificate_pem("eo.example.com")
+    root_pem = _certificate_pem("Test Root CA")
+    ssl = FakeSsl(
+        cert_id="cert-new",
+        certificate_public_key=leaf_pem,
+        root_certificate=root_pem,
+    )
+    _patch_clients(monkeypatch, ssl=ssl)
+    deployer = TencentDeployer(secret_id="a", secret_key="b")
+    target = DeployTarget(
+        provider="tencent",
+        product_type="teo",
+        product_id="eo.example.com",
+        domain="eo.example.com",
+    )
+
+    result = asyncio.run(deployer.deploy(leaf_pem + root_pem, "KEY", target))
+
+    assert result.success is True
+    assert result.cert_id == "cert-new"
+    assert ssl.detail_calls[0].CertificateId == "cert-new"
+    assert ssl.deploy_calls[0].CertificateId == "cert-new"
+
+
+def test_tencent_upload_forces_one_retry_when_existing_id_has_incomplete_chain(monkeypatch):
+    log_messages: list[str] = []
+
+    def capture_log(message, *args):
+        log_messages.append(message % args)
+
+    monkeypatch.setattr(tencent_deploy_mod.LOGGER, "info", capture_log)
+    monkeypatch.setattr(tencent_deploy_mod.LOGGER, "warning", capture_log)
+    monkeypatch.setattr(tencent_deploy_mod.LOGGER, "error", capture_log)
+    leaf_pem = _certificate_pem("eo.example.com")
+    root_pem = _certificate_pem("Test Root CA")
+    ssl = FakeSsl(
+        upload_responses=[
+            SimpleNamespace(
+                CertificateId="cert-old",
+                RepeatCertId="",
+                RequestId="upload-old-request",
+            ),
+            SimpleNamespace(
+                CertificateId="cert-new",
+                RepeatCertId="",
+                RequestId="upload-new-request",
+            ),
+        ],
+        certificate_details=[
+            SimpleNamespace(
+                CertificatePublicKey=leaf_pem,
+                RootCert=SimpleNamespace(Standard=""),
+                RequestId="detail-old-request",
+            ),
+            SimpleNamespace(
+                CertificatePublicKey=leaf_pem,
+                RootCert=SimpleNamespace(Standard=root_pem),
+                RequestId="detail-new-request",
+            ),
+        ],
+    )
+    _patch_clients(monkeypatch, ssl=ssl)
+    deployer = TencentDeployer(secret_id="a", secret_key="b")
+    target = DeployTarget(
+        provider="tencent",
+        product_type="teo",
+        product_id="eo.example.com",
+        domain="eo.example.com",
+    )
+
+    result = asyncio.run(deployer.deploy(leaf_pem + root_pem, "PRIVATE-KEY", target))
+
+    assert result.success is True
+    assert result.cert_id == "cert-new"
+    assert [request.Repeatable for request in ssl.upload_calls] == [False, True]
+    assert [request.CertificateId for request in ssl.detail_calls] == ["cert-old", "cert-new"]
+    assert ssl.deploy_calls[0].CertificateId == "cert-new"
+    combined_logs = "\n".join(log_messages)
+    assert "cert-old" in combined_logs
+    assert "cert-new" in combined_logs
+    assert "upload-old-request" in combined_logs
+    assert "upload-new-request" in combined_logs
+    assert "BEGIN CERTIFICATE" not in combined_logs
+    assert "PRIVATE-KEY" not in combined_logs
+
+
+@pytest.mark.parametrize("remote_mode", ["missing", "different"])
+def test_tencent_upload_rejects_remote_certificate_chain_mismatch(monkeypatch, remote_mode):
+    leaf_pem = _certificate_pem("api.example.com")
+    root_pem = _certificate_pem("Test Root CA")
+    remote_pem = leaf_pem if remote_mode == "missing" else _certificate_pem("Other CA")
+    ssl = FakeSsl(
+        cert_id="cert-old",
+        repeat_id="cert-old",
+        certificate_public_key=remote_pem,
+    )
+    _patch_clients(monkeypatch, ssl=ssl)
+    deployer = TencentDeployer(secret_id="a", secret_key="b")
+
+    with pytest.raises(RuntimeError, match="证书链与本地不一致"):
+        asyncio.run(deployer.upload_certificate(leaf_pem + root_pem, "KEY"))
+
+    assert [request.Repeatable for request in ssl.upload_calls] == [False, True]
+    assert [request.CertificateId for request in ssl.detail_calls] == ["cert-old", "cert-old"]
+    assert ssl.deploy_calls == []
+
+
+@pytest.mark.parametrize(
+    ("certificate_public_key", "detail_error", "message"),
+    [
+        ("", None, "腾讯云证书详情为空"),
+        ("invalid-pem", None, "腾讯云证书详情无法解析"),
+        ("", RuntimeError("permission denied"), "腾讯云证书详情查询失败"),
+    ],
+)
+def test_tencent_upload_rejects_unverifiable_remote_certificate(
+    monkeypatch,
+    certificate_public_key,
+    detail_error,
+    message,
+):
+    leaf_pem = _certificate_pem("api.example.com")
+    ssl = FakeSsl(
+        cert_id="cert-1",
+        certificate_public_key=certificate_public_key,
+        certificate_detail_error=detail_error,
+    )
+    _patch_clients(monkeypatch, ssl=ssl)
+    deployer = TencentDeployer(secret_id="a", secret_key="b")
+
+    with pytest.raises(RuntimeError, match=message):
+        asyncio.run(deployer.upload_certificate(leaf_pem, "KEY"))
+
+    assert len(ssl.upload_calls) == 1
+    assert ssl.upload_calls[0].Repeatable is False
+
+
+def test_tencent_deploy_stops_before_product_deploy_when_uploaded_chain_mismatches(monkeypatch):
+    leaf_pem = _certificate_pem("eo.example.com")
+    root_pem = _certificate_pem("Test Root CA")
+    ssl = FakeSsl(
+        cert_id="cert-old",
+        repeat_id="cert-old",
+        certificate_public_key=leaf_pem,
+    )
+    _patch_clients(monkeypatch, ssl=ssl)
+    deployer = TencentDeployer(secret_id="a", secret_key="b")
+    target = DeployTarget(
+        provider="tencent",
+        product_type="teo",
+        product_id="eo.example.com",
+        domain="eo.example.com",
+    )
+
+    result = asyncio.run(deployer.deploy(leaf_pem + root_pem, "KEY", target))
+
+    assert result.success is False
+    assert "证书链与本地不一致" in result.message
+    assert [request.Repeatable for request in ssl.upload_calls] == [False, True]
+    assert ssl.deploy_calls == []
 
 
 def test_tencent_deploy_clb_uses_region_ssl_client(monkeypatch):

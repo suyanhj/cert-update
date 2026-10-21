@@ -141,6 +141,8 @@ def test_tencent_context_failure_does_not_block_next_account(failure):
     assert ids["tencent:b"] == "id-b"
     assert skipped[0]["provider"] == "a"
     assert skipped[0]["status"] == "failed"
+    if failure in {"construct", "upload"}:
+        providers[0].get_ssl_deploy_bindings.assert_not_awaited()
 
 
 def test_scheduler_stop_waits_for_active_round(monkeypatch):
