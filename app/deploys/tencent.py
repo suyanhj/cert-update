@@ -7,6 +7,8 @@ import json
 import time
 from typing import Any, List, Optional, Tuple
 
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
 from tencentcloud.cdn.v20180606 import models as cdn_models
 from tencentcloud.ssl.v20191205 import models as ssl_models
 
@@ -21,6 +23,10 @@ LOGGER = get_logger("deployer")
 _CDN_CERT_ROUTE = "Https.CertInfo.CertId"
 _DEPLOY_POLL_INTERVAL_SECONDS = 2.0
 _DEPLOY_POLL_TIMEOUT_SECONDS = 300.0
+
+
+class _TencentCertificateChainMismatch(RuntimeError):
+    """腾讯云远端证书链与本地待部署证书链不一致。"""
 
 
 class TencentDeployer(CertificateDeployer):
@@ -84,16 +90,65 @@ class TencentDeployer(CertificateDeployer):
     async def _upload_certificate(self, cert_pem: str, key_pem: str, alias: str) -> str:
         if not cert_pem or not key_pem:
             raise ValueError("上传腾讯云 SSL 失败：cert_pem/key_pem 不能为空")
+
+        # 先确认本地证书链可解析，避免上传后才发现输入无效。
+        local_fingerprints = self._certificate_chain_fingerprints(cert_pem, "本地待上传证书")
+        cert_id = self._request_certificate_upload(
+            cert_pem,
+            key_pem,
+            alias,
+            repeatable=False,
+        )
+        try:
+            self._verify_uploaded_certificate(
+                cert_id,
+                local_fingerprints,
+                mismatch_is_retryable=True,
+            )
+            return cert_id
+        except _TencentCertificateChainMismatch:
+            LOGGER.warning(
+                "腾讯云首次上传返回的证书链不一致，尝试允许重复上传: "
+                "alias=%s previous_cert_id=%s",
+                alias,
+                cert_id,
+            )
+
+        retry_cert_id = self._request_certificate_upload(
+            cert_pem,
+            key_pem,
+            alias,
+            repeatable=True,
+        )
+        try:
+            self._verify_uploaded_certificate(retry_cert_id, local_fingerprints)
+        except _TencentCertificateChainMismatch as exc:
+            raise RuntimeError(
+                "腾讯云证书链与本地不一致（强制重传后仍不一致），"
+                f"终止后续扫描和部署: cert_id={retry_cert_id}"
+            ) from exc
+        return retry_cert_id
+
+    def _request_certificate_upload(
+        self,
+        cert_pem: str,
+        key_pem: str,
+        alias: str,
+        *,
+        repeatable: bool,
+    ) -> str:
+        """发送一次腾讯云证书上传请求并返回响应中的证书 ID。"""
         req = ssl_models.UploadCertificateRequest()
         req.CertificatePublicKey = cert_pem
         req.CertificatePrivateKey = key_pem
         req.Alias = alias
-        req.Repeatable = False
+        req.Repeatable = repeatable
         resp = self._ssl_client.UploadCertificate(req)
-        cert_id_new = str(resp.CertificateId or "").strip()
-        cert_id_repeat = str(resp.RepeatCertId or "").strip()
+        cert_id_new = str(getattr(resp, "CertificateId", "") or "").strip()
+        cert_id_repeat = str(getattr(resp, "RepeatCertId", "") or "").strip()
+        request_id = str(getattr(resp, "RequestId", "") or "").strip()
         if cert_id_new:
-            upload_mode = "new"
+            upload_mode = "repeat" if cert_id_repeat else "new"
             cert_id = cert_id_new
         elif cert_id_repeat:
             upload_mode = "repeat"
@@ -101,12 +156,97 @@ class TencentDeployer(CertificateDeployer):
         else:
             raise RuntimeError(f"腾讯云 SSL 上传未返回证书 ID: alias={alias}")
         LOGGER.info(
-            "腾讯云证书上传成功: alias=%s upload_mode=%s cert_id=%s",
+            "腾讯云证书上传响应: alias=%s repeatable=%s upload_mode=%s cert_id=%s "
+            "new_cert_id=%s repeat_cert_id=%s request_id=%s",
             alias,
+            repeatable,
             upload_mode,
             cert_id,
+            cert_id_new or "-",
+            cert_id_repeat or "-",
+            request_id or "-",
         )
         return cert_id
+
+    @staticmethod
+    def _certificate_chain_fingerprints(cert_pem: str, source: str) -> Tuple[str, ...]:
+        """解析 PEM 证书链，返回排序后的 SHA-256 指纹集合。"""
+        content = str(cert_pem or "").strip()
+        if not content:
+            raise RuntimeError(f"{source}为空")
+        try:
+            certificates = x509.load_pem_x509_certificates(content.encode("utf-8"))
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(f"{source}无法解析") from exc
+        if not certificates:
+            raise RuntimeError(f"{source}中未找到证书")
+        return tuple(
+            sorted({certificate.fingerprint(hashes.SHA256()).hex() for certificate in certificates})
+        )
+
+    @staticmethod
+    def _fingerprint_summary(fingerprints: Tuple[str, ...]) -> str:
+        """日志仅输出短指纹，不记录证书 PEM 内容。"""
+        return ",".join(item[:12] for item in fingerprints)
+
+    def _verify_uploaded_certificate(
+        self,
+        cert_id: str,
+        local_fingerprints: Tuple[str, ...],
+        *,
+        mismatch_is_retryable: bool = False,
+    ) -> None:
+        """回查腾讯云证书详情，确保返回 ID 的证书链与本地一致。"""
+        req = ssl_models.DescribeCertificateDetailRequest()
+        req.CertificateId = cert_id
+        try:
+            resp = self._ssl_client.DescribeCertificateDetail(req)
+        except Exception as exc:
+            raise RuntimeError(f"腾讯云证书详情查询失败: cert_id={cert_id}") from exc
+
+        public_pem = str(getattr(resp, "CertificatePublicKey", "") or "").strip()
+        root_cert = getattr(resp, "RootCert", None)
+        root_pem = str(getattr(root_cert, "Standard", "") or "").strip()
+        remote_pem = "\n".join(part for part in (public_pem, root_pem) if part)
+        request_id = str(getattr(resp, "RequestId", "") or "").strip()
+        try:
+            remote_fingerprints = self._certificate_chain_fingerprints(
+                remote_pem,
+                "腾讯云证书详情",
+            )
+        except RuntimeError as exc:
+            LOGGER.error(
+                "腾讯云证书链验证失败: cert_id=%s request_id=%s reason=%s",
+                cert_id,
+                request_id or "-",
+                exc,
+            )
+            raise
+
+        if remote_fingerprints != local_fingerprints:
+            log_mismatch = LOGGER.warning if mismatch_is_retryable else LOGGER.error
+            log_mismatch(
+                "腾讯云证书链与本地不一致: cert_id=%s request_id=%s "
+                "retryable=%s local_count=%s remote_count=%s local_sha256=%s remote_sha256=%s",
+                cert_id,
+                request_id or "-",
+                mismatch_is_retryable,
+                len(local_fingerprints),
+                len(remote_fingerprints),
+                self._fingerprint_summary(local_fingerprints),
+                self._fingerprint_summary(remote_fingerprints),
+            )
+            raise _TencentCertificateChainMismatch(
+                f"腾讯云证书链与本地不一致: cert_id={cert_id}"
+            )
+
+        LOGGER.info(
+            "腾讯云证书链验证通过: cert_id=%s request_id=%s chain_count=%s sha256=%s",
+            cert_id,
+            request_id or "-",
+            len(local_fingerprints),
+            self._fingerprint_summary(local_fingerprints),
+        )
 
     async def deploy(
         self,
