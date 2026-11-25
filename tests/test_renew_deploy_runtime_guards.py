@@ -278,8 +278,13 @@ def test_verification_error_fails_but_removed_target_skips(monkeypatch, query_er
         assert result["failed_count"] == 0
         assert len(result["skipped"]) == 1
     else:
-        with pytest.raises(RuntimeError, match="未发现可部署"):
-            asyncio.run(service.apply_deploy(_cert()))
+        result = asyncio.run(service.apply_deploy(_cert()))
+        assert result["deploy_status"] == "skipped"
+        assert result["reason"] == "no_targets"
+        assert result["failed_count"] == 0
+        assert result["success_count"] == 0
+        assert len(result["skipped"]) == 1
+        state.record_failure.assert_not_called()
 
 
 @pytest.mark.parametrize("invalid", ["auth", "host", "missing_auth"])
