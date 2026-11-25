@@ -27,6 +27,7 @@ from app.schemas.provider import (
     binding_from_cache_dict,
 )
 from app.services.bindings import BindingCacheService
+from app.services.certificate_operation_lock import certificate_operation_locks
 from app.services.provider_factory import build_cloud_providers, get_provider_builder_map
 from app.utils.domain_match import build_cert_domains, find_blacklisted_domain, match_domain, normalize_domain
 from app.utils.certificate_deployment import prepare_certificate_for_deployment
@@ -1014,6 +1015,32 @@ class DeployService:
         return list(match_map.values()), deployer_map, cert_id_map
 
     async def apply_deploy(
+        self,
+        renewed_cert: RenewedCert,
+        provider_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """在云账号证书操作锁内完成整段上传与绑定，避免与定时清理并发。"""
+        cloud_provider_types = {"aliyun", "huawei", "tencent", "volcengine", "qiniu"}
+        identities: list[tuple[str, str]] = []
+        configured_providers = (
+            self.conf.get("providers", [])
+            if isinstance(self.conf, dict)
+            else getattr(self.conf, "providers", [])
+        )
+        for provider in configured_providers:
+            provider_type = str(getattr(provider, "type", "") or "").strip().lower()
+            current_name = str(getattr(provider, "name", "") or "").strip()
+            enabled = bool(getattr(provider, "enabled", True))
+            if not enabled or provider_type not in cloud_provider_types or not current_name:
+                continue
+            if provider_name and current_name != provider_name:
+                continue
+            identities.append((provider_type, current_name))
+
+        async with certificate_operation_locks(identities):
+            return await self._apply_deploy_locked(renewed_cert, provider_name)
+
+    async def _apply_deploy_locked(
         self,
         renewed_cert: RenewedCert,
         provider_name: Optional[str] = None,

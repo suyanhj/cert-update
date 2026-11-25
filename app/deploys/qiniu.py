@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, List, Optional
 from urllib.parse import quote, urlencode
 
@@ -232,36 +233,88 @@ class QiniuDeployer(CertificateDeployer):
 
     async def list_certificates(self) -> List[dict]:
         """分页列出已上传的七牛云证书。"""
-        certs: List[dict] = []
-        marker = ""
-        seen_markers: set[str] = set()
         try:
-            while True:
-                params: dict[str, Any] = {"limit": 100}
-                if marker:
-                    params["marker"] = marker
-                response = self._make_request(
-                    f"{QINIU_CERT_API}?{urlencode(params)}"
-                )
-                page_certs = response.get("certs", [])
-                if not isinstance(page_certs, list):
-                    raise QiniuAPIError("七牛证书列表响应中的 certs 不是数组")
-                certs.extend(item for item in page_certs if isinstance(item, dict))
-
-                next_marker = str(response.get("marker") or "").strip()
-                if not next_marker:
-                    break
-                if next_marker in seen_markers:
-                    raise QiniuAPIError(
-                        f"七牛证书分页 marker 未前进: marker={next_marker}"
-                    )
-                seen_markers.add(next_marker)
-                marker = next_marker
-            LOGGER.info("七牛云获取证书列表成功: count=%d", len(certs))
-            return certs
+            return await self.list_certificates_strict()
         except Exception as exc:
             LOGGER.warning("获取七牛云证书列表失败: %s", exc, exc_info=True)
             return []
+
+    async def list_certificates_strict(self) -> List[dict]:
+        """严格分页列出证书，供失败关闭的清理流程使用。"""
+        certs: List[dict] = []
+        marker = ""
+        seen_markers: set[str] = set()
+        seen_cert_ids: set[str] = set()
+        while True:
+            params: dict[str, Any] = {"limit": 100}
+            if marker:
+                params["marker"] = marker
+            response = await asyncio.to_thread(
+                self._make_request,
+                f"{QINIU_CERT_API}?{urlencode(params)}",
+            )
+            if not isinstance(response, dict):
+                raise QiniuAPIError("七牛证书列表响应不是对象")
+            page_certs = response.get("certs")
+            if not isinstance(page_certs, list):
+                raise QiniuAPIError("七牛证书列表响应中的 certs 不是数组")
+            for item in page_certs:
+                if not isinstance(item, dict):
+                    raise QiniuAPIError("七牛证书列表包含非法项目")
+                cert_id = str(item.get("certID") or "").strip()
+                if not cert_id:
+                    raise QiniuAPIError("七牛证书列表项目缺少 certID")
+                if cert_id in seen_cert_ids:
+                    raise QiniuAPIError(f"七牛证书分页返回重复证书: cert_id={cert_id}")
+                seen_cert_ids.add(cert_id)
+                certs.append(item)
+
+            next_marker = str(response.get("marker") or "").strip()
+            if not next_marker:
+                break
+            if next_marker == marker or next_marker in seen_markers:
+                raise QiniuAPIError(f"七牛证书分页 marker 未前进: marker={next_marker}")
+            seen_markers.add(next_marker)
+            marker = next_marker
+        LOGGER.info("七牛云获取证书列表成功: count=%d", len(certs))
+        return certs
+
+    async def get_certificate_strict(self, cert_id: str) -> dict | None:
+        """严格获取单张证书；明确不存在时返回 None。"""
+        cert_id_value = str(cert_id or "").strip()
+        if not cert_id_value:
+            raise ValueError("查询七牛云证书需要 cert_id")
+        try:
+            response = await asyncio.to_thread(
+                self._make_request,
+                f"{QINIU_CERT_API}/{quote(cert_id_value, safe='')}",
+            )
+        except QiniuAPIError as exc:
+            if exc.status_code == 404 or str(exc.code or "") in {"404", "612"}:
+                return None
+            raise
+        if not isinstance(response, dict):
+            raise QiniuAPIError("七牛证书详情响应不是对象")
+        item = response.get("cert") if isinstance(response.get("cert"), dict) else response
+        response_id = str(item.get("certID") or "").strip()
+        if response_id != cert_id_value:
+            raise QiniuAPIError(
+                f"七牛证书详情 ID 不一致: requested={cert_id_value} actual={response_id or '-'}"
+            )
+        return item
+
+    async def delete_certificate_strict(self, cert_id: str) -> None:
+        """严格删除证书，错误原样上抛供清理流程分类。"""
+        cert_id_value = str(cert_id or "").strip()
+        if not cert_id_value:
+            raise ValueError("删除七牛云证书需要 cert_id")
+        encoded_cert_id = quote(cert_id_value, safe="")
+        await asyncio.to_thread(
+            self._make_request,
+            f"{QINIU_CERT_API}/{encoded_cert_id}",
+            "DELETE",
+        )
+        LOGGER.info("七牛云证书删除成功: cert_id=%s", cert_id_value)
 
     async def delete_certificate(self, cert_id: str) -> bool:
         """删除一个未绑定的七牛云证书。"""
@@ -269,12 +322,7 @@ class QiniuDeployer(CertificateDeployer):
         if not cert_id_value:
             raise ValueError("删除七牛云证书需要 cert_id")
         try:
-            encoded_cert_id = quote(cert_id_value, safe="")
-            self._make_request(
-                f"{QINIU_CERT_API}/{encoded_cert_id}",
-                "DELETE",
-            )
-            LOGGER.info("七牛云证书删除成功: cert_id=%s", cert_id_value)
+            await self.delete_certificate_strict(cert_id_value)
             return True
         except Exception as exc:
             LOGGER.error(

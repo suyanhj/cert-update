@@ -10,6 +10,7 @@
 - `config-entry.md` / `config-rules.md`：配置解析与规则（`extends` / 合并 / 去重 / 原子写入）。
 - `runtime-data.md`：运行时数据结构与字段约定。
 - `notifications.md`：钉钉、Rocket.Chat 与 SMTP 邮件通知配置及失败语义。
+- `certificate-cleanup.md`：云端过期证书定时报告、安全删除门禁、平台能力和配置。
 
 ## 2. 推荐阅读顺序
 
@@ -84,6 +85,7 @@
 | Providers | [providers.md](providers.md) | [flow-providers.svg](flow-providers.svg) |
 | Deployers | [deploys.md](deploys.md) | [flow-deployers.svg](flow-deployers.svg) |
 | Notifications | [notifications.md](notifications.md) | - |
+| Certificate cleanup | [certificate-cleanup.md](certificate-cleanup.md) | - |
 
 ## 8. 总览
 

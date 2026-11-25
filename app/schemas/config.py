@@ -438,6 +438,51 @@ class CACatalogCheckConfig(BaseModel):
     timeout_seconds: float = Field(20, gt=0, le=120)
 
 
+class CertificateCleanupScopeConfig(BaseModel):
+    """允许自动删除证书的精确云账号与证书库范围。"""
+
+    provider_type: Literal["tencent", "aliyun", "huawei", "volcengine", "qiniu"]
+    provider_name: str = Field(..., min_length=1)
+    store: str = Field(..., min_length=1)
+
+    @field_validator("provider_name", "store", mode="before")
+    @classmethod
+    def normalize_required_text(cls, value):
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("证书清理范围字段不能为空")
+        return text
+
+
+class CertificateCleanupConfig(BaseModel):
+    """云端过期证书定期清理配置。"""
+
+    enabled: bool = False
+    mode: Literal["report", "delete"] = "report"
+    interval_hours: int = Field(24, ge=1)
+    expired_grace_days: int = Field(30, ge=0)
+    confirm_scans: int = Field(1, ge=1)
+    max_deletes_per_run: int = Field(20, ge=1, le=1000)
+    delete_scopes: List[CertificateCleanupScopeConfig] = Field(default_factory=list)
+
+    @field_validator("delete_scopes")
+    @classmethod
+    def validate_unique_delete_scopes(
+        cls,
+        value: List[CertificateCleanupScopeConfig],
+    ) -> List[CertificateCleanupScopeConfig]:
+        seen: set[tuple[str, str, str]] = set()
+        for item in value:
+            key = (item.provider_type, item.provider_name, item.store)
+            if key in seen:
+                raise ValueError(
+                    "certificate_cleanup.delete_scopes 存在重复范围: "
+                    f"{item.provider_type}:{item.provider_name}:{item.store}"
+                )
+            seen.add(key)
+        return value
+
+
 class AppConfig(BaseSettings):
     """应用配置入口，可通过 .env、环境变量或 YAML 填充。"""
 
@@ -525,6 +570,7 @@ class AppConfig(BaseSettings):
     )
     auto_renew_days: int = Field(20, description="证书剩余多少天时自动触发续签")
     ca_catalog_check: CACatalogCheckConfig = Field(default_factory=CACatalogCheckConfig)
+    certificate_cleanup: CertificateCleanupConfig = Field(default_factory=CertificateCleanupConfig)
     check_interval_minutes: int = Field(10, description="轮询云平台的频率（分钟）")
     log_level: str = Field("info", description="全局日志级别：debug / info / warning / error")
     tls_scan_parallel: int = Field(10, gt=0, description="TLS 探测并发数")
@@ -547,3 +593,15 @@ class AppConfig(BaseSettings):
                 raise ValueError("domain_dns_overrides 的域名和 Provider 名称不能为空")
             result[domain] = provider_name
         return result
+
+    @model_validator(mode="after")
+    def validate_certificate_cleanup_scopes(self):
+        providers = {(item.type, item.name) for item in self.providers}
+        for scope in self.certificate_cleanup.delete_scopes:
+            key = (scope.provider_type, scope.provider_name)
+            if key not in providers:
+                raise ValueError(
+                    "证书清理删除范围引用了不存在的 Provider: "
+                    f"{scope.provider_type}:{scope.provider_name}:{scope.store}"
+                )
+        return self

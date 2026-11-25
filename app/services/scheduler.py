@@ -2,6 +2,7 @@
 import asyncio
 from app.services.collector import collect_all
 from app.services.ca_catalog_check import check_ca_catalog_if_due
+from app.services.certificate_cleanup import cleanup_if_due
 from app.utils.logger import get_logger
 
 logger = get_logger("app")
@@ -41,6 +42,11 @@ def start_scheduler(interval: int = 60, run_immediately: bool = True):
                         await check_ca_catalog_if_due()
                     except Exception:
                         logger.exception("官方 CA 目录检查失败，下一轮调度继续处理")
+                    if not _stop_event.is_set():
+                        try:
+                            await cleanup_if_due()
+                        except Exception:
+                            logger.exception("云端过期证书清理失败，下一轮调度继续处理")
                     await _wait_interval()
         finally:
             logger.info("scheduler stopped")

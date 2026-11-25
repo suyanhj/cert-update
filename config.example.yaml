@@ -287,3 +287,14 @@ ca_catalog_check:
   interval_hours: 24
   warn_days: 90
   timeout_seconds: 20
+
+# 云端过期证书清理；默认关闭，启用后默认只报告。
+# delete 模式仍需在 delete_scopes 中精确授权平台、账号和证书库。
+certificate_cleanup:
+  enabled: false
+  mode: report                    # report: 仅报告；delete: 对授权且支持安全删除的证书库执行删除
+  interval_hours: 24              # 独立于采集周期的清理检查间隔
+  expired_grace_days: 30          # 证书过期后继续保留的天数
+  confirm_scans: 1                # 完整候选扫描次数；删除前始终会再次实时复查
+  max_deletes_per_run: 20         # 单轮所有平台合计最多删除数量
+  delete_scopes: []               # 示例: [{provider_type: tencent, provider_name: 腾讯账号, store: ssl}]

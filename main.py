@@ -1,6 +1,9 @@
 import argparse
 import asyncio
 
+from fastapi import Request
+from fastapi.responses import PlainTextResponse
+
 from nicegui import ui, app as guiapp
 
 from app.config import get_config, set_config_path
@@ -23,6 +26,12 @@ def handle_cli_args() -> None:
     args, _ = parser.parse_known_args()
     if args.config_path:
         set_config_path(args.config_path)
+
+
+@guiapp.exception_handler(Exception)
+async def handle_unexpected_error(_request: Request, exc: Exception) -> PlainTextResponse:
+    log.error("管理界面发生未处理异常", exc_info=exc)
+    return PlainTextResponse("服务器内部错误", status_code=500)
 
 
 @guiapp.on_startup
@@ -58,6 +67,7 @@ if __name__ in {"__main__", "__mp_main__"}:
         ui.run(
             title='证书管理控制台',
             reload=False,
+            fastapi_docs=False,
             show=False,
             uvicorn_logging_level="info",
         )

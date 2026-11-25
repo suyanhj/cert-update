@@ -32,6 +32,17 @@ class QiniuAuthContext:
 class QiniuAPIError(RuntimeError):
     """七牛 API 请求或业务响应失败。"""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: int | str | None = None,
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+
 
 def build_qiniu_auth(access_key_id: str, access_key_secret: str) -> QiniuAuthContext:
     """构建 Fusion(QBox) 与 Domain(Qiniu) 所需的官方 SDK 鉴权对象。"""
@@ -76,7 +87,9 @@ def _response_payload(response: requests.Response, url: str) -> Any:
         detail = error or str(getattr(response, "reason", "") or "未知错误")
         raise QiniuAPIError(
             f"七牛 API 请求失败: status={response.status_code} code={code} "
-            f"error={detail} url={url}"
+            f"error={detail} url={url}",
+            code=code,
+            status_code=response.status_code,
         )
     return payload
 
